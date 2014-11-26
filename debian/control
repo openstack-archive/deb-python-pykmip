@@ -11,17 +11,21 @@ Build-Depends: debhelper (>= 9),
                python3-all,
                python3-setuptools
 Build-Depends-Indep: python-coverage,
+                     python-enum34,
                      python-fixtures,
                      python-mock,
                      python-pytest,
+                     python-sqlalchemy,
                      python-subunit,
                      python-testresources,
                      python-testscenarios,
                      python-testtools,
                      python3-coverage,
+                     python3-enum34,
                      python3-fixtures,
                      python3-mock,
                      python3-pytest,
+                     python3-sqlalchemy,
                      python3-subunit,
                      python3-testresources,
                      python3-testscenarios,
@@ -36,8 +40,8 @@ Homepage: https://github.com/OpenKMIP/PyKMIP
 Package: python-pykmip
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
+Provides: python-kmip
 Depends: python-enum34, python-sqlalchemy, ${misc:Depends}, ${python:Depends}
-Suggests: python-pykmip-doc
 Description: implementation of the Key Management Interoperability Protocol - Python 2.x
  PyKMIP is a Python implementation of the Key Management Interoperability
  Protocol (KMIP) specification, supporting version 1.1 of the KMIP standard.
@@ -58,8 +62,11 @@ Description: implementation of the Key Management Interoperability Protocol - Py
 Package: python3-pykmip
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: python3-enum34, python3-sqlalchemy, ${misc:Depends}, ${python3:Depends}
-Suggests: python-pykmip-doc
+Provides: python3-kmip
+Depends: python3-enum34,
+         python3-sqlalchemy,
+         ${misc:Depends},
+         ${python3:Depends}
 Description: KMIP v1.1 library - Python 3.x
  PyKMIP is a Python implementation of the Key Management Interoperability
  Protocol (KMIP) specification, supporting version 1.1 of the KMIP standard.
@@ -76,25 +83,3 @@ Description: KMIP v1.1 library - Python 3.x
   * Destroy
  .
  This package contains the Python 3.x module.
-
-Package: python-pykmip-doc
-Section: doc
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: ${misc:Depends}, ${sphinxdoc:Depends}
-Description: KMIP v1.1 library - doc
- PyKMIP is a Python implementation of the Key Management Interoperability
- Protocol (KMIP) specification, supporting version 1.1 of the KMIP standard.
- The KMIP standard is governed by the Organization for the Advancement of
- Structured Information Standards (OASIS) and specifies a client/server-based
- protocol to perform key, certificate, and secret object management, including
- storage and maintenance operations.
- .
- The PyKMIP library currently provides a KMIP client and server supporting the
- following operations for the KMIP SymmetricKey managed object:
-  * Create
-  * Register
-  * Get
-  * Destroy
- .
- This package contains the documentation.

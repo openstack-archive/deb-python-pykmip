@@ -1,5 +1,5 @@
 python-pykmip (0.2.0-1) unstable; urgency=medium
 
-  * Initial release. (Closes: #XXXXXX)
+  * Initial release. (Closes: #771076)
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 26 Nov 2014 22:55:22 +0800
