@@ -13,11 +13,12 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from six.moves import xrange
+
 from kmip.core import attributes
 from kmip.core.attributes import CryptographicParameters
 
 from kmip.core.factories.attribute_values import AttributeValueFactory
-from kmip.core.factories.keys import KeyFactory
 
 from kmip.core import enums
 from kmip.core.enums import AttributeType
@@ -26,6 +27,7 @@ from kmip.core.enums import Types
 from kmip.core.enums import CredentialType
 
 from kmip.core.errors import ErrorStrings
+from kmip.core.misc import KeyFormatType
 
 from kmip.core.primitives import Struct
 from kmip.core.primitives import TextString
@@ -108,6 +110,22 @@ class Attribute(Struct):
         self.length = tstream.length()
         super(self.__class__, self).write(ostream)
         ostream.write(tstream.buffer)
+
+    def __eq__(self, other):
+        if isinstance(other, Attribute):
+            if self.attribute_name != other.attribute_name:
+                return False
+            elif self.attribute_index != other.attribute_index:
+                return False
+            elif self.attribute_value != other.attribute_value:
+                return False
+            else:
+                return True
+        else:
+            return NotImplemented
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
 
 # 2.1.2
@@ -325,12 +343,6 @@ class Credential(Struct):
 # 2.1.3
 class KeyBlock(Struct):
 
-    class KeyFormatType(Enumeration):
-        ENUM_TYPE = enums.KeyFormatType
-
-        def __init__(self, value=None):
-            super(self.__class__, self).__init__(value, Tags.KEY_FORMAT_TYPE)
-
     class KeyCompressionType(Enumeration):
         ENUM_TYPE = enums.KeyCompressionType
 
@@ -358,15 +370,14 @@ class KeyBlock(Struct):
         super(self.__class__, self).read(istream)
         tstream = BytearrayStream(istream.read(self.length))
 
-        self.key_format_type = KeyBlock.KeyFormatType()
+        self.key_format_type = KeyFormatType()
         self.key_format_type.read(tstream)
-        key_format_type = self.key_format_type.enum
 
         if self.is_tag_next(Tags.KEY_COMPRESSION_TYPE, tstream):
             self.key_compression_type = KeyBlock.KeyCompressionType()
             self.key_compression_type.read(tstream)
 
-        self.key_value = KeyValue(key_format_type=key_format_type)
+        self.key_value = KeyValue()
         self.key_value.read(tstream)
 
         if self.is_tag_next(Tags.CRYPTOGRAPHIC_ALGORITHM, tstream):
@@ -411,9 +422,9 @@ class KeyBlock(Struct):
 
     def __validate(self):
         if self.key_format_type is not None:
-            if type(self.key_format_type) is not KeyBlock.KeyFormatType:
+            if type(self.key_format_type) is not KeyFormatType:
                 member = 'KeyBlock.key_format_type'
-                exp_type = KeyBlock.KeyFormatType
+                exp_type = KeyFormatType
                 rcv_type = type(self.key_format_type)
                 msg = ErrorStrings.BAD_EXP_RECV.format(member, 'type',
                                                        exp_type, rcv_type)
@@ -421,35 +432,78 @@ class KeyBlock(Struct):
 
 
 # 2.1.4
-class KeyValueString(ByteString):
+class KeyMaterial(ByteString):
 
     def __init__(self, value=None):
-        super(self.__class__, self).__init__(value, Tags.KEY_VALUE)
+        super(self.__class__, self).__init__(value, Tags.KEY_MATERIAL)
 
 
-class KeyValueStruct(Struct):
+# TODO (peter-hamilton) Get rid of this and replace with a KeyMaterial factory.
+class KeyMaterialStruct(Struct):
+
+    def __init__(self):
+        super(KeyMaterialStruct, self).__init__(Tags.SERVER_INFORMATION)
+
+        self.data = BytearrayStream()
+
+        self.validate()
+
+    def read(self, istream):
+        super(KeyMaterialStruct, self).read(istream)
+        tstream = BytearrayStream(istream.read(self.length))
+
+        self.data = BytearrayStream(tstream.read())
+
+        self.is_oversized(tstream)
+        self.validate()
+
+    def write(self, ostream):
+        tstream = BytearrayStream()
+        tstream.write(self.data.buffer)
+
+        self.length = tstream.length()
+        super(KeyMaterialStruct, self).write(ostream)
+        ostream.write(tstream.buffer)
+
+    def validate(self):
+        self.__validate()
+
+    def __validate(self):
+        # NOTE (peter-hamilton): Intentional pass, no way to validate data.
+        pass
+
+
+class KeyValue(Struct):
 
     def __init__(self,
-                 key_format_type=None,
                  key_material=None,
                  attributes=None):
         super(self.__class__, self).__init__(Tags.KEY_VALUE)
-        self.key_format_type = key_format_type
-        self.key_material = key_material
-        self.attributes = attributes
-        self.key_factory = KeyFactory()
+
+        if key_material is None:
+            self.key_material = KeyMaterial()
+        else:
+            self.key_material = key_material
+
+        if attributes is None:
+            self.attributes = list()
+        else:
+            self.attributes = attributes
+
         self.validate()
 
     def read(self, istream):
         super(self.__class__, self).read(istream)
         tstream = BytearrayStream(istream.read(self.length))
 
-        self.key_material = self.key_factory.create_key(self.key_format_type)
-        self.key_material.read(tstream)
+        # TODO (peter-hamilton) Replace this with a KeyMaterial factory.
+        if self.is_type_next(Types.STRUCTURE, tstream):
+            self.key_material = KeyMaterialStruct()
+            self.key_material.read(tstream)
+        else:
+            self.key_material = KeyMaterial()
+            self.key_material.read(tstream)
 
-        self.attributes = list()
-
-        # Read the attributes, 0 or more
         while self.is_tag_next(Tags.ATTRIBUTE, tstream):
             attribute = Attribute()
             attribute.read(tstream)
@@ -463,11 +517,9 @@ class KeyValueStruct(Struct):
 
         self.key_material.write(tstream)
 
-        if self.attributes is not None:
-            for attribute in self.attributes:
-                attribute.write(tstream)
+        for attribute in self.attributes:
+            attribute.write(tstream)
 
-        # Write the length and value of the credential
         self.length = tstream.length()
         super(self.__class__, self).write(ostream)
         ostream.write(tstream.buffer)
@@ -476,56 +528,26 @@ class KeyValueStruct(Struct):
         self.__validate()
 
     def __validate(self):
-        # TODO (peter-hamilton) Finish implementation.
-        pass
+        # TODO (peter-hamilton) Replace with check against KeyMaterial factory.
+        if not isinstance(self.key_material, KeyMaterial):
+            msg = "invalid key material"
+            msg += "; expected {0}, received {1}".format(
+                KeyMaterial, self.key_material)
+            raise TypeError(msg)
 
-
-class KeyValue(Struct):
-    '''
-    KeyValue can be either a ByteString or a Struct. Therefore, this class
-    acts as a wrapper for two different KeyValue objects, KeyValueString,
-    which represents the ByteString format, and KeyValueStruct, which
-    represents the Struct format, both of which are defined above. This
-    KeyValue object does not read or write itself; instead, it reads and
-    writes its internal key_value attribute, which is either a KeyValueString
-    or a KeyValueStruct.
-
-    When reading, the class determines what the format of its internal
-    structure should be by looking at the type of the object it will read
-    using KeyValue.is_type_next(). This is one of the only places in the
-    code where this approach is used.
-    '''
-
-    def __init__(self,
-                 key_value=None,
-                 key_format_type=None):
-        super(self.__class__, self).__init__(Tags.KEY_VALUE)
-        self.key_value = key_value
-        self.key_format_type = key_format_type
-        if self.key_value is not None:
-            self.type = key_value.type
-        self.validate()
-
-    def read(self, istream):
-        if self.is_type_next(Types.BYTE_STRING, istream):
-            self.key_value = KeyValueString()
-            self.key_value.read(istream)
-        elif self.is_type_next(Types.STRUCTURE, istream):
-            kft = self.key_format_type
-            self.key_value = KeyValueStruct(key_format_type=kft)
-            self.key_value.read(istream)
-
-    def write(self, ostream):
-        tstream = BytearrayStream()
-        self.key_value.write(tstream)
-        ostream.write(tstream.buffer)
-
-    def validate(self):
-        self.__validate()
-
-    def __validate(self):
-        # TODO (peter-hamilton) Finish implementation.
-        pass
+        if isinstance(self.attributes, list):
+            for i in xrange(len(self.attributes)):
+                attribute = self.attributes[i]
+                if not isinstance(attribute, Attribute):
+                    msg = "invalid attribute ({0} in list)".format(i)
+                    msg += "; expected {0}, received {1}".format(
+                        Attribute, attribute)
+                    raise TypeError(msg)
+        else:
+            msg = "invalid attributes list"
+            msg += "; expected {0}, received {1}".format(
+                list, self.attributes)
+            raise TypeError(msg)
 
 
 # 2.1.5
@@ -793,14 +815,24 @@ class TemplateAttribute(Struct):
 
     def __init__(self,
                  names=None,
-                 attributes=None):
-        super(self.__class__, self).__init__(tag=Tags.TEMPLATE_ATTRIBUTE)
-        self.names = names
-        self.attributes = attributes
+                 attributes=None,
+                 tag=Tags.TEMPLATE_ATTRIBUTE):
+        super(TemplateAttribute, self).__init__(tag)
+
+        if names is None:
+            self.names = list()
+        else:
+            self.names = names
+
+        if attributes is None:
+            self.attributes = list()
+        else:
+            self.attributes = attributes
+
         self.validate()
 
     def read(self, istream):
-        super(self.__class__, self).read(istream)
+        super(TemplateAttribute, self).read(istream)
         tstream = BytearrayStream(istream.read(self.length))
 
         self.names = list()
@@ -825,16 +857,14 @@ class TemplateAttribute(Struct):
         tstream = BytearrayStream()
 
         # Write the names and attributes of the template attribute
-        if self.names is not None:
-            for name in self.names:
-                name.write(tstream)
-        if self.attributes is not None:
-            for attribute in self.attributes:
-                attribute.write(tstream)
+        for name in self.names:
+            name.write(tstream)
+        for attribute in self.attributes:
+            attribute.write(tstream)
 
         # Write the length and value of the template attribute
         self.length = tstream.length()
-        super(self.__class__, self).write(ostream)
+        super(TemplateAttribute, self).write(ostream)
         ostream.write(tstream.buffer)
 
     def validate(self):
@@ -843,3 +873,296 @@ class TemplateAttribute(Struct):
     def __validate(self):
         # TODO (peter-hamilton) Finish implementation.
         pass
+
+    def __eq__(self, other):
+        if isinstance(other, TemplateAttribute):
+            if len(self.names) != len(other.names):
+                return False
+            if len(self.attributes) != len(other.attributes):
+                return False
+
+            for i in xrange(len(self.names)):
+                a = self.names[i]
+                b = other.names[i]
+
+                if a != b:
+                    return False
+
+            for i in xrange(len(self.attributes)):
+                a = self.attributes[i]
+                b = other.attributes[i]
+
+                if a != b:
+                    return False
+
+            return True
+        else:
+            return NotImplemented
+
+
+class CommonTemplateAttribute(TemplateAttribute):
+
+    def __init__(self,
+                 names=None,
+                 attributes=None):
+        super(CommonTemplateAttribute, self).__init__(
+            names, attributes, Tags.COMMON_TEMPLATE_ATTRIBUTE)
+
+
+class PrivateKeyTemplateAttribute(TemplateAttribute):
+
+    def __init__(self,
+                 names=None,
+                 attributes=None):
+        super(PrivateKeyTemplateAttribute, self).__init__(
+            names, attributes, Tags.PRIVATE_KEY_TEMPLATE_ATTRIBUTE)
+
+
+class PublicKeyTemplateAttribute(TemplateAttribute):
+
+    def __init__(self,
+                 names=None,
+                 attributes=None):
+        super(PublicKeyTemplateAttribute, self).__init__(
+            names, attributes, Tags.PUBLIC_KEY_TEMPLATE_ATTRIBUTE)
+
+
+# 2.1.9
+class ExtensionName(TextString):
+    """
+    The name of an extended Object.
+
+    A part of ExtensionInformation, specifically identifying an Object that is
+    a custom vendor addition to the KMIP specification. See Section 2.1.9 of
+    the KMIP 1.1 specification for more information.
+
+    Attributes:
+        value: The string data representing the extension name.
+    """
+    def __init__(self, value=''):
+        """
+        Construct an ExtensionName object.
+
+        Args:
+            value (str): The string data representing the extension name.
+                Optional, defaults to the empty string.
+        """
+        super(ExtensionName, self).__init__(value, Tags.EXTENSION_NAME)
+
+
+class ExtensionTag(Integer):
+    """
+    The tag of an extended Object.
+
+    A part of ExtensionInformation. See Section 2.1.9 of the KMIP 1.1
+    specification for more information.
+
+    Attributes:
+        value: The tag number identifying the extended object.
+    """
+    def __init__(self, value=0):
+        """
+        Construct an ExtensionTag object.
+
+        Args:
+            value (int): A number representing the extension tag. Often
+                displayed in hex format. Optional, defaults to 0.
+        """
+        super(ExtensionTag, self).__init__(value, Tags.EXTENSION_TAG)
+
+
+class ExtensionType(Integer):
+    """
+    The type of an extended Object.
+
+    A part of ExtensionInformation, specifically identifying the type of the
+    Object in the specification extension. See Section 2.1.9 of the KMIP 1.1
+    specification for more information.
+
+    Attributes:
+        value: The type enumeration for the extended object.
+    """
+    def __init__(self, value=None):
+        """
+        Construct an ExtensionType object.
+
+        Args:
+            value (Types): A number representing a Types enumeration value,
+                indicating the type of the extended Object. Optional, defaults
+                to None.
+        """
+        super(ExtensionType, self).__init__(value, Tags.EXTENSION_TYPE)
+
+
+class ExtensionInformation(Struct):
+    """
+    A structure describing Objects defined in KMIP specification extensions.
+
+    It is used specifically for Objects with Item Tag values in the Extensions
+    range and appears in responses to Query requests for server extension
+    information. See Sections 2.1.9 and 4.25 of the KMIP 1.1 specification for
+    more information.
+
+    Attributes:
+        extension_name: The name of the extended Object.
+        extension_tag: The tag of the extended Object.
+        extension_type: The type of the extended Object.
+    """
+    def __init__(self, extension_name=None, extension_tag=None,
+                 extension_type=None):
+        """
+        Construct an ExtensionInformation object.
+
+        Args:
+            extension_name (ExtensionName): The name of the extended Object.
+            extension_tag (ExtensionTag): The tag of the extended Object.
+            extension_type (ExtensionType): The type of the extended Object.
+        """
+        super(ExtensionInformation, self).__init__(Tags.EXTENSION_INFORMATION)
+
+        if extension_name is None:
+            self.extension_name = ExtensionName()
+        else:
+            self.extension_name = extension_name
+
+        self.extension_tag = extension_tag
+        self.extension_type = extension_type
+
+        self.validate()
+
+    def read(self, istream):
+        """
+        Read the data encoding the ExtensionInformation object and decode it
+        into its constituent parts.
+
+        Args:
+            istream (Stream): A data stream containing encoded object data,
+                supporting a read method; usually a BytearrayStream object.
+        """
+        super(ExtensionInformation, self).read(istream)
+        tstream = BytearrayStream(istream.read(self.length))
+
+        self.extension_name.read(tstream)
+
+        if self.is_tag_next(Tags.EXTENSION_TAG, tstream):
+            self.extension_tag = ExtensionTag()
+            self.extension_tag.read(tstream)
+        if self.is_tag_next(Tags.EXTENSION_TYPE, tstream):
+            self.extension_type = ExtensionType()
+            self.extension_type.read(tstream)
+
+        self.is_oversized(tstream)
+        self.validate()
+
+    def write(self, ostream):
+        """
+        Write the data encoding the ExtensionInformation object to a stream.
+
+        Args:
+            ostream (Stream): A data stream in which to encode object data,
+                supporting a write method; usually a BytearrayStream object.
+        """
+        tstream = BytearrayStream()
+
+        self.extension_name.write(tstream)
+
+        if self.extension_tag is not None:
+            self.extension_tag.write(tstream)
+        if self.extension_type is not None:
+            self.extension_type.write(tstream)
+
+        self.length = tstream.length()
+        super(ExtensionInformation, self).write(ostream)
+        ostream.write(tstream.buffer)
+
+    def validate(self):
+        """
+        Error check the attributes of the ExtensionInformation object.
+        """
+        self.__validate()
+
+    def __validate(self):
+        if not isinstance(self.extension_name, ExtensionName):
+            msg = "invalid extension name"
+            msg += "; expected {0}, received {1}".format(
+                ExtensionName, self.extension_name)
+            raise TypeError(msg)
+
+        if self.extension_tag is not None:
+            if not isinstance(self.extension_tag, ExtensionTag):
+                msg = "invalid extension tag"
+                msg += "; expected {0}, received {1}".format(
+                    ExtensionTag, self.extension_tag)
+                raise TypeError(msg)
+
+        if self.extension_type is not None:
+            if not isinstance(self.extension_type, ExtensionType):
+                msg = "invalid extension type"
+                msg += "; expected {0}, received {1}".format(
+                    ExtensionType, self.extension_type)
+                raise TypeError(msg)
+
+    def __eq__(self, other):
+        if isinstance(other, ExtensionInformation):
+            if self.extension_name != other.extension_name:
+                return False
+            elif self.extension_tag != other.extension_tag:
+                return False
+            elif self.extension_type != other.extension_type:
+                return False
+            else:
+                return True
+        else:
+            return NotImplemented
+
+    def __ne__(self, other):
+        if isinstance(other, ExtensionInformation):
+            return not (self == other)
+        else:
+            return NotImplemented
+
+    def __repr__(self):
+        name = "extension_name={0}".format(repr(self.extension_name))
+        tag = "extension_tag={0}".format(repr(self.extension_tag))
+        typ = "extension_type={0}".format(repr(self.extension_type))
+        return "ExtensionInformation({0}, {1}, {2})".format(name, tag, typ)
+
+    def __str__(self):
+        return repr(self)
+
+    @classmethod
+    def create(cls, extension_name=None, extension_tag=None,
+               extension_type=None):
+        """
+        Construct an ExtensionInformation object from provided extension
+        values.
+
+        Args:
+            extension_name (str): The name of the extension. Optional,
+                defaults to None.
+            extension_tag (int): The tag number of the extension. Optional,
+                defaults to None.
+            extension_type (int): The type index of the extension. Optional,
+                defaults to None.
+
+        Returns:
+            ExtensionInformation: The newly created set of extension
+                information.
+
+        Example:
+            >>> x = ExtensionInformation.create('extension', 1, 1)
+            >>> x.extension_name.value
+            ExtensionName(value='extension')
+            >>> x.extension_tag.value
+            ExtensionTag(value=1)
+            >>> x.extension_type.value
+            ExtensionType(value=1)
+        """
+        extension_name = ExtensionName(extension_name)
+        extension_tag = ExtensionTag(extension_tag)
+        extension_type = ExtensionType(extension_type)
+
+        return ExtensionInformation(
+            extension_name=extension_name,
+            extension_tag=extension_tag,
+            extension_type=extension_type)

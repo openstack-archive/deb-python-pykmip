@@ -13,6 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import logging
 import time
 
 from kmip.core.messages.messages import RequestMessage
@@ -27,11 +28,11 @@ from kmip.core.messages.contents import TimeStamp
 
 from kmip.core.primitives import Base
 
-from kmip.core.messages.operations import CreateResponsePayload
-from kmip.core.messages.operations import GetResponsePayload
-from kmip.core.messages.operations import DestroyResponsePayload
-from kmip.core.messages.operations import RegisterResponsePayload
-from kmip.core.messages.operations import LocateResponsePayload
+from kmip.core.messages.payloads.create import CreateResponsePayload
+from kmip.core.messages.payloads.get import GetResponsePayload
+from kmip.core.messages.payloads.destroy import DestroyResponsePayload
+from kmip.core.messages.payloads.register import RegisterResponsePayload
+from kmip.core.messages.payloads.locate import LocateResponsePayload
 
 from kmip.core.enums import Operation
 from kmip.core.enums import ResultStatus as RS
@@ -43,6 +44,7 @@ from kmip.core.utils import BytearrayStream
 
 class Processor(object):
     def __init__(self, handler):
+        self.logger = logging.getLogger(__name__)
         self._handler = handler
 
     def process(self, istream, ostream):
@@ -119,7 +121,7 @@ class Processor(object):
             elif result_status.enum is RS.OPERATION_UNDONE:
                 result_reason = result[1]
             else:
-                msg = 'Unrecognized operation result status: {}'
+                msg = 'Unrecognized operation result status: {0}'
                 raise RuntimeError(msg.format(result_status))
 
             resp_bi = ResponseBatchItem(operation=operation,
@@ -142,7 +144,7 @@ class Processor(object):
                 elif batch_error_cont_option.enum is BECO.CONTINUE:
                     continue
                 else:
-                    msg = 'Unrecognized batch error continuation option: {}'
+                    msg = 'Unrecognized batch error continuation option: {0}'
                     raise RuntimeError(msg.format(batch_error_cont_option))
 
         response_batch_count = BatchCount(len(response_batch_items))

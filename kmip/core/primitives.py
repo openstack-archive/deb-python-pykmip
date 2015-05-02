@@ -13,6 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import six
 import sys
 
 from struct import pack, unpack
@@ -80,15 +81,7 @@ class Base(object):
             min_bytes = 'a minimum of {0} bytes'.format(self.LENGTH_SIZE)
             raise errors.ReadValueError(Base.__name__, 'length', min_bytes,
                                         '{0} bytes'.format(num_bytes))
-        length = unpack('!I', lst)[0]
-
-        # Verify that the length matches the expected length, if one exists
-        if self.length is not None:
-            if length is not self.length:
-                raise errors.ReadValueError(Base.__name__, 'length',
-                                            self.length, length)
-        else:
-            self.length = length
+        self.length = unpack('!I', lst)[0]
 
     def read_value(self, istream):
         raise NotImplementedError()
@@ -163,8 +156,9 @@ class Struct(Base):
     def __init__(self, tag=Tags.DEFAULT):
         super(Struct, self).__init__(tag, type=Types.STRUCTURE)
 
+    # NOTE (peter-hamilton) If seen, should indicate repr needs to be defined
     def __repr__(self):
-        return '<Struct>'
+        return "Struct()"
 
 
 class Integer(Base):
@@ -174,6 +168,9 @@ class Integer(Base):
         super(Integer, self).__init__(tag, type=Types.INTEGER)
 
         self.value = value
+        if self.value is None:
+            self.value = 0
+
         self.length = self.LENGTH
         self.padding_length = self.LENGTH
 
@@ -220,7 +217,22 @@ class Integer(Base):
                                                 num_bytes)
 
     def __repr__(self):
-        return '<Integer, %d>' % (self.value)
+        return "{0}(value={1})".format(type(self).__name__, repr(self.value))
+
+    def __str__(self):
+        return "{0}".format(repr(self.value))
+
+    def __eq__(self, other):
+        if isinstance(other, Integer):
+            return self.value == other.value
+        else:
+            return NotImplemented
+
+    def __ne__(self, other):
+        if isinstance(other, Integer):
+            return not self.__eq__(other)
+        else:
+            return NotImplemented
 
 
 class LongInteger(Base):
@@ -258,21 +270,14 @@ class LongInteger(Base):
     def __validate(self):
         if self.value is not None:
             data_type = type(self.value)
-            if sys.version < '3':
-                valid_data_types = (int, long)
-                error_msg = '{0} or {1}'.format(int, long)
-            else:
-                valid_data_types = (int,)
-                error_msg = '{0}'.format(int)
-            if data_type not in valid_data_types:
-                raise errors.StateTypeError(LongInteger.__name__,
-                                            error_msg,
-                                            data_type)
+            if data_type not in six.integer_types:
+                raise errors.StateTypeError(
+                    LongInteger.__name__, "{0}".format(six.integer_types),
+                    data_type)
             num_bytes = utils.count_bytes(self.value)
             if num_bytes > self.length:
-                raise errors.StateOverflowError(LongInteger.__name__,
-                                                'value', self.length,
-                                                num_bytes)
+                raise errors.StateOverflowError(
+                    LongInteger.__name__, 'value', self.length, num_bytes)
 
     def __repr__(self):
         return '<Long Integer, %d>' % (self.value)
@@ -369,15 +374,15 @@ class BigInteger(Base):
     def __validate(self):
         if self.value is not None:
             data_type = type(self.value)
-            if data_type not in (int, long):
-                raise errors.StateTypeError(BigInteger.__name__,
-                                            '{0} or {1}'.format(int, long),
-                                            data_type)
+            if data_type not in six.integer_types:
+                raise errors.StateTypeError(
+                    BigInteger.__name__, "{0}".format(six.integer_types),
+                    data_type)
             num_bytes = utils.count_bytes(self.length)
             if num_bytes > self.LENGTH_SIZE:
-                raise errors.StateOverflowError(BigInteger.__name__,
-                                                'length', self.LENGTH_SIZE,
-                                                num_bytes)
+                raise errors.StateOverflowError(
+                    BigInteger.__name__, 'length', self.LENGTH_SIZE,
+                    num_bytes)
 
 
 class Enumeration(Integer):
@@ -412,7 +417,11 @@ class Enumeration(Integer):
                                            Enum, type(self.enum)))
 
     def __repr__(self):
-        return '<Enumeration, %s, %d>' % (self.enum.name, self.enum.value)
+        return "{0}(value={1})".format(type(self).__name__, self.enum)
+
+    def __str__(self):
+        return "{0} - {1} - {2}".format(
+            type(self.enum), self.enum.name, self.enum.value)
 
 
 class Boolean(Base):
@@ -478,7 +487,11 @@ class TextString(Base):
 
     def __init__(self, value=None, tag=Tags.DEFAULT):
         super(TextString, self).__init__(tag, type=Types.TEXT_STRING)
-        self.value = value
+
+        if value is None:
+            self.value = ''
+        else:
+            self.value = value
 
         self.validate()
 
@@ -545,7 +558,22 @@ class TextString(Base):
                                            data_type))
 
     def __repr__(self):
-        return '<TextString, %s>' % (self.value)
+        return "{0}(value={1})".format(type(self).__name__, repr(self.value))
+
+    def __str__(self):
+        return "{0}".format(repr(self.value))
+
+    def __eq__(self, other):
+        if isinstance(other, TextString):
+            return self.value == other.value
+        else:
+            return NotImplemented
+
+    def __ne__(self, other):
+        if isinstance(other, TextString):
+            return not (self == other)
+        else:
+            return NotImplemented
 
 
 class ByteString(Base):
@@ -554,7 +582,11 @@ class ByteString(Base):
 
     def __init__(self, value=None, tag=Tags.DEFAULT):
         super(ByteString, self).__init__(tag, type=Types.BYTE_STRING)
-        self.value = value
+
+        if value is None:
+            self.value = bytes()
+        else:
+            self.value = bytes(value)
 
         self.validate()
 
@@ -570,9 +602,10 @@ class ByteString(Base):
 
     def read_value(self, istream):
         # Read bytes into bytearray
-        self.value = bytearray()
+        data = bytearray()
         for _ in range(self.length):
-            self.value.append(istream.read(1)[0])
+            data.append(istream.read(1)[0])
+        self.value = bytes(data)
 
         # Read padding and check content
         self.padding_length = self.PADDING_SIZE - (self.length %
@@ -593,7 +626,8 @@ class ByteString(Base):
 
     def write_value(self, ostream):
         # Write bytes to stream
-        for byte in self.value:
+        data = bytearray(self.value)
+        for byte in data:
             ostream.write(pack(self.BYTE_FORMAT, byte))
 
         # Write padding to stream
@@ -608,15 +642,31 @@ class ByteString(Base):
         self.__validate()
 
     def __validate(self):
+        # TODO (peter-hamilton) Test is pointless, value is always bytes. Fix.
         if self.value is not None:
             data_type = type(self.value)
-            if data_type is not bytearray:
+            if data_type is not bytes:
                 msg = ErrorStrings.BAD_EXP_RECV
-                raise TypeError(msg.format('ByteString', 'value', bytearray,
+                raise TypeError(msg.format('ByteString', 'value', bytes,
                                            data_type))
 
     def __repr__(self):
-        return '<Integer, %s>' % (self.value)
+        return "{0}(value={1})".format(type(self).__name__, repr(self.value))
+
+    def __str__(self):
+        return "{0}".format(str(self.value))
+
+    def __eq__(self, other):
+        if isinstance(other, ByteString):
+            return self.value == other.value
+        else:
+            return NotImplemented
+
+    def __ne__(self, other):
+        if isinstance(other, ByteString):
+            return not (self == other)
+        else:
+            return NotImplemented
 
 
 class DateTime(LongInteger):

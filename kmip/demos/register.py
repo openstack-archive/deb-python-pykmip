@@ -71,14 +71,14 @@ if __name__ == '__main__':
     secret_features.update([('cryptographic_algorithm', algorithm_value)])
     secret_features.update([('cryptographic_length', 128)])
 
-    secret = secret_factory.create_secret(object_type, secret_features)
+    secret = secret_factory.create(object_type, secret_features)
 
     result = client.register(object_type, template_attribute, secret,
                              credential)
     client.close()
 
-    logger.debug('register() result status: {}'.format(
+    logger.debug('register() result status: {0}'.format(
         result.result_status.enum))
-    logger.debug('registered UUID: {}'.format(result.uuid.value))
-    logger.debug('registered template attribute: {}'.
+    logger.debug('registered UUID: {0}'.format(result.uuid.value))
+    logger.debug('registered template attribute: {0}'.
                  format(result.template_attribute))

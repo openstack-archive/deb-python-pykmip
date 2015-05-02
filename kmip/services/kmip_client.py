@@ -14,15 +14,21 @@
 # under the License.
 
 from kmip.services.results import CreateResult
-from kmip.services.results import GetResult
+from kmip.services.results import CreateKeyPairResult
 from kmip.services.results import DestroyResult
-from kmip.services.results import RegisterResult
+from kmip.services.results import DiscoverVersionsResult
+from kmip.services.results import GetResult
 from kmip.services.results import LocateResult
+from kmip.services.results import QueryResult
+from kmip.services.results import RegisterResult
+from kmip.services.results import RekeyKeyPairResult
 
 from kmip.core import attributes as attr
 
-from kmip.core.enums import Operation as OperationEnum
+from kmip.core.enums import AuthenticationSuite
+from kmip.core.enums import ConformanceClause
 from kmip.core.enums import CredentialType
+from kmip.core.enums import Operation as OperationEnum
 
 from kmip.core.factories.credentials import CredentialFactory
 
@@ -31,11 +37,20 @@ from kmip.core.server import KMIP
 
 from kmip.core.messages.contents import Authentication
 from kmip.core.messages.contents import BatchCount
-from kmip.core.messages.contents import ProtocolVersion
 from kmip.core.messages.contents import Operation
+from kmip.core.messages.contents import ProtocolVersion
 
 from kmip.core.messages import messages
-from kmip.core.messages import operations
+
+from kmip.core.messages.payloads import create
+from kmip.core.messages.payloads import create_key_pair
+from kmip.core.messages.payloads import destroy
+from kmip.core.messages.payloads import discover_versions
+from kmip.core.messages.payloads import get
+from kmip.core.messages.payloads import locate
+from kmip.core.messages.payloads import query
+from kmip.core.messages.payloads import rekey_key_pair
+from kmip.core.messages.payloads import register
 
 from kmip.services.kmip_protocol import KMIPProtocol
 
@@ -59,18 +74,134 @@ class KMIPProxy(KMIP):
                  cert_reqs=None, ssl_version=None, ca_certs=None,
                  do_handshake_on_connect=None,
                  suppress_ragged_eofs=None,
-                 username=None,
-                 password=None):
+                 username=None, password=None, config='client'):
         super(self.__class__, self).__init__()
         self.logger = logging.getLogger(__name__)
         self.credential_factory = CredentialFactory()
+        self.config = config
 
         self._set_variables(host, port, keyfile, certfile,
                             cert_reqs, ssl_version, ca_certs,
                             do_handshake_on_connect, suppress_ragged_eofs,
                             username, password)
+        self.batch_items = []
 
+        self.conformance_clauses = [
+            ConformanceClause.DISCOVER_VERSIONS]
+
+        self.authentication_suites = [
+            AuthenticationSuite.BASIC,
+            AuthenticationSuite.TLS12]
+
+    def get_supported_conformance_clauses(self):
+        """
+        Get the list of conformance clauses supported by the client.
+
+        Returns:
+            list: A shallow copy of the list of supported conformance clauses.
+
+        Example:
+            >>> client.get_supported_conformance_clauses()
+            [<ConformanceClause.DISCOVER_VERSIONS: 1>]
+        """
+        return self.conformance_clauses[:]
+
+    def get_supported_authentication_suites(self):
+        """
+        Get the list of authentication suites supported by the client.
+
+        Returns:
+            list: A shallow copy of the list of supported authentication
+                suites.
+
+        Example:
+            >>> client.get_supported_authentication_suites()
+            [<AuthenticationSuite.BASIC: 1>, <AuthenticationSuite.TLS12: 2>]
+        """
+        return self.authentication_suites[:]
+
+    def is_conformance_clause_supported(self, conformance_clause):
+        """
+        Check if a ConformanceClause is supported by the client.
+
+        Args:
+            conformance_clause (ConformanceClause): A ConformanceClause
+                enumeration to check against the list of supported
+                ConformanceClauses.
+
+        Returns:
+            bool: True if the ConformanceClause is supported, False otherwise.
+
+        Example:
+            >>> clause = ConformanceClause.DISCOVER_VERSIONS
+            >>> client.is_conformance_clause_supported(clause)
+            True
+            >>> clause = ConformanceClause.BASELINE
+            >>> client.is_conformance_clause_supported(clause)
+            False
+        """
+        return conformance_clause in self.conformance_clauses
+
+    def is_authentication_suite_supported(self, authentication_suite):
+        """
+        Check if an AuthenticationSuite is supported by the client.
+
+        Args:
+            authentication_suite (AuthenticationSuite): An AuthenticationSuite
+                enumeration to check against the list of supported
+                AuthenticationSuites.
+
+        Returns:
+            bool: True if the AuthenticationSuite is supported, False
+                otherwise.
+
+        Example:
+            >>> suite = AuthenticationSuite.BASIC
+            >>> client.is_authentication_suite_supported(suite)
+            True
+            >>> suite = AuthenticationSuite.TLS12
+            >>> client.is_authentication_suite_supported(suite)
+            False
+        """
+        return authentication_suite in self.authentication_suites
+
+    def is_profile_supported(self, conformance_clause, authentication_suite):
+        """
+        Check if a profile is supported by the client.
+
+        Args:
+            conformance_clause (ConformanceClause):
+            authentication_suite (AuthenticationSuite):
+
+        Returns:
+            bool: True if the profile is supported, False otherwise.
+
+        Example:
+            >>> client.is_profile_supported(
+            ... ConformanceClause.DISCOVER_VERSIONS,
+            ... AuthenticationSuite.BASIC)
+            True
+        """
+        return (self.is_conformance_clause_supported(conformance_clause) and
+                self.is_authentication_suite_supported(authentication_suite))
+
+    def open(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        self.logger.debug("KMIPProxy keyfile: {0}".format(self.keyfile))
+        self.logger.debug("KMIPProxy certfile: {0}".format(self.certfile))
+        self.logger.debug(
+            "KMIPProxy cert_reqs: {0} (CERT_REQUIRED: {1})".format(
+                self.cert_reqs, ssl.CERT_REQUIRED))
+        self.logger.debug(
+            "KMIPProxy ssl_version: {0} (PROTOCOL_SSLv23: {1})".format(
+                self.ssl_version, ssl.PROTOCOL_SSLv23))
+        self.logger.debug("KMIPProxy ca_certs: {0}".format(self.ca_certs))
+        self.logger.debug("KMIPProxy do_handshake_on_connect: {0}".format(
+            self.do_handshake_on_connect))
+        self.logger.debug("KMIPProxy suppress_ragged_eofs: {0}".format(
+            self.suppress_ragged_eofs))
+
         self.socket = ssl.wrap_socket(
             sock,
             keyfile=self.keyfile,
@@ -82,7 +213,6 @@ class KMIPProxy(KMIP):
             suppress_ragged_eofs=self.suppress_ragged_eofs)
         self.protocol = KMIPProtocol(self.socket)
 
-    def open(self):
         self.socket.connect((self.host, self.port))
 
     def close(self):
@@ -94,9 +224,29 @@ class KMIPProxy(KMIP):
                             template_attribute=template_attribute,
                             credential=credential)
 
+    def create_key_pair(self, batch=False, common_template_attribute=None,
+                        private_key_template_attribute=None,
+                        public_key_template_attribute=None, credential=None):
+        batch_item = self._build_create_key_pair_batch_item(
+            common_template_attribute, private_key_template_attribute,
+            public_key_template_attribute)
+
+        if batch:
+            self.batch_items.append(batch_item)
+        else:
+            request = self._build_request_message(credential, [batch_item])
+            response = self._send_and_receive_message(request)
+            results = self._process_batch_items(response)
+            return results[0]
+
     def get(self, uuid=None, key_format_type=None, key_compression_type=None,
             key_wrapping_specification=None, credential=None):
-        return self._get(unique_identifier=uuid, credential=credential)
+        return self._get(
+            unique_identifier=uuid,
+            key_format_type=key_format_type,
+            key_compression_type=key_compression_type,
+            key_wrapping_specification=key_wrapping_specification,
+            credential=credential)
 
     def destroy(self, uuid, credential=None):
         return self._destroy(unique_identifier=uuid,
@@ -110,12 +260,66 @@ class KMIPProxy(KMIP):
                               secret=secret,
                               credential=credential)
 
+    def rekey_key_pair(self, batch=False, private_key_uuid=None, offset=None,
+                       common_template_attribute=None,
+                       private_key_template_attribute=None,
+                       public_key_template_attribute=None, credential=None):
+        batch_item = self._build_rekey_key_pair_batch_item(
+            private_key_uuid, offset, common_template_attribute,
+            private_key_template_attribute, public_key_template_attribute)
+
+        if batch:
+            self.batch_items.append(batch_item)
+        else:
+            request = self._build_request_message(credential, [batch_item])
+            response = self._send_and_receive_message(request)
+            results = self._process_batch_items(response)
+            return results[0]
+
     def locate(self, maximum_items=None, storage_status_mask=None,
                object_group_member=None, attributes=None, credential=None):
         return self._locate(maximum_items=maximum_items,
                             storage_status_mask=storage_status_mask,
                             object_group_member=object_group_member,
                             attributes=attributes, credential=credential)
+
+    def query(self, batch=False, query_functions=None, credential=None):
+        """
+        Send a Query request to the server.
+
+        Args:
+            batch (boolean): A flag indicating if the operation should be sent
+                with a batch of additional operations. Defaults to False.
+            query_functions (list): A list of QueryFunction enumerations
+                indicating what information the client wants from the server.
+                Optional, defaults to None.
+            credential (Credential): A Credential object containing
+                authentication information for the server. Optional, defaults
+                to None.
+        """
+        batch_item = self._build_query_batch_item(query_functions)
+
+        # TODO (peter-hamilton): Replace this with official client batch mode.
+        if batch:
+            self.batch_items.append(batch_item)
+        else:
+            request = self._build_request_message(credential, [batch_item])
+            response = self._send_and_receive_message(request)
+            results = self._process_batch_items(response)
+            return results[0]
+
+    def discover_versions(self, batch=False, protocol_versions=None,
+                          credential=None):
+        batch_item = self._build_discover_versions_batch_item(
+            protocol_versions)
+
+        if batch:
+            self.batch_items.append(batch_item)
+        else:
+            request = self._build_request_message(credential, [batch_item])
+            response = self._send_and_receive_message(request)
+            results = self._process_batch_items(response)
+            return results[0]
 
     def _create(self,
                 object_type=None,
@@ -126,7 +330,7 @@ class KMIPProxy(KMIP):
         if object_type is None:
             raise ValueError('object_type cannot be None')
 
-        req_pl = operations.CreateRequestPayload(
+        req_pl = create.CreateRequestPayload(
             object_type=object_type,
             template_attribute=template_attribute)
         batch_item = messages.RequestBatchItem(operation=operation,
@@ -158,6 +362,140 @@ class KMIPProxy(KMIP):
                               payload_template_attribute)
         return result
 
+    def _build_create_key_pair_batch_item(self, common_template_attribute=None,
+                                          private_key_template_attribute=None,
+                                          public_key_template_attribute=None):
+        operation = Operation(OperationEnum.CREATE_KEY_PAIR)
+        payload = create_key_pair.CreateKeyPairRequestPayload(
+            common_template_attribute=common_template_attribute,
+            private_key_template_attribute=private_key_template_attribute,
+            public_key_template_attribute=public_key_template_attribute)
+        batch_item = messages.RequestBatchItem(
+            operation=operation, request_payload=payload)
+        return batch_item
+
+    def _build_rekey_key_pair_batch_item(self,
+                                         private_key_uuid=None, offset=None,
+                                         common_template_attribute=None,
+                                         private_key_template_attribute=None,
+                                         public_key_template_attribute=None):
+        operation = Operation(OperationEnum.REKEY_KEY_PAIR)
+        payload = rekey_key_pair.RekeyKeyPairRequestPayload(
+            private_key_uuid, offset,
+            common_template_attribute=common_template_attribute,
+            private_key_template_attribute=private_key_template_attribute,
+            public_key_template_attribute=public_key_template_attribute)
+        batch_item = messages.RequestBatchItem(
+            operation=operation, request_payload=payload)
+        return batch_item
+
+    def _build_query_batch_item(self, query_functions=None):
+        operation = Operation(OperationEnum.QUERY)
+        payload = query.QueryRequestPayload(query_functions)
+        batch_item = messages.RequestBatchItem(
+            operation=operation, request_payload=payload)
+        return batch_item
+
+    def _build_discover_versions_batch_item(self, protocol_versions=None):
+        operation = Operation(OperationEnum.DISCOVER_VERSIONS)
+
+        payload = discover_versions.DiscoverVersionsRequestPayload(
+            protocol_versions)
+
+        batch_item = messages.RequestBatchItem(
+            operation=operation, request_payload=payload)
+        return batch_item
+
+    def _process_batch_items(self, response):
+        results = []
+        for batch_item in response.batch_items:
+            operation = batch_item.operation.enum
+            processor = self._get_batch_item_processor(operation)
+            result = processor(batch_item)
+            results.append(result)
+        return results
+
+    def _get_batch_item_processor(self, operation):
+        if operation == OperationEnum.CREATE_KEY_PAIR:
+            return self._process_create_key_pair_batch_item
+        elif operation == OperationEnum.REKEY_KEY_PAIR:
+            return self._process_rekey_key_pair_batch_item
+        elif operation == OperationEnum.QUERY:
+            return self._process_query_batch_item
+        elif operation == OperationEnum.DISCOVER_VERSIONS:
+            return self._process_discover_versions_batch_item
+        else:
+            raise ValueError("no processor for operation: {0}".format(
+                operation))
+
+    def _process_key_pair_batch_item(self, batch_item, result):
+        payload = batch_item.response_payload
+
+        payload_private_key_uuid = None
+        payload_public_key_uuid = None
+        payload_private_key_template_attribute = None
+        payload_public_key_template_attribute = None
+
+        if payload is not None:
+            payload_private_key_uuid = payload.private_key_uuid
+            payload_public_key_uuid = payload.public_key_uuid
+            payload_private_key_template_attribute = \
+                payload.private_key_template_attribute
+            payload_public_key_template_attribute = \
+                payload.public_key_template_attribute
+
+        return result(batch_item.result_status, batch_item.result_reason,
+                      batch_item.result_message, payload_private_key_uuid,
+                      payload_public_key_uuid,
+                      payload_private_key_template_attribute,
+                      payload_public_key_template_attribute)
+
+    def _process_create_key_pair_batch_item(self, batch_item):
+        return self._process_key_pair_batch_item(
+            batch_item, CreateKeyPairResult)
+
+    def _process_rekey_key_pair_batch_item(self, batch_item):
+        return self._process_key_pair_batch_item(
+            batch_item, RekeyKeyPairResult)
+
+    def _process_query_batch_item(self, batch_item):
+        payload = batch_item.response_payload
+
+        operations = None
+        object_types = None
+        vendor_identification = None
+        server_information = None
+        application_namespaces = None
+        extension_information = None
+
+        if payload is not None:
+            operations = payload.operations
+            object_types = payload.object_types
+            vendor_identification = payload.vendor_identification
+            server_information = payload.server_information
+            application_namespaces = payload.application_namespaces
+            extension_information = payload.extension_information
+
+        return QueryResult(
+            batch_item.result_status,
+            batch_item.result_reason,
+            batch_item.result_message,
+            operations,
+            object_types,
+            vendor_identification,
+            server_information,
+            application_namespaces,
+            extension_information)
+
+    def _process_discover_versions_batch_item(self, batch_item):
+        payload = batch_item.response_payload
+
+        result = DiscoverVersionsResult(
+            batch_item.result_status, batch_item.result_reason,
+            batch_item.result_message, payload.protocol_versions)
+
+        return result
+
     def _get(self,
              unique_identifier=None,
              key_format_type=None,
@@ -174,17 +512,17 @@ class KMIPProxy(KMIP):
         if unique_identifier is not None:
             uuid = attr.UniqueIdentifier(unique_identifier)
         if key_format_type is not None:
-            kft = operations.GetRequestPayload.KeyFormatType(key_format_type)
+            kft = get.GetRequestPayload.KeyFormatType(key_format_type.enum)
         if key_compression_type is not None:
             kct = key_compression_type
-            kct = operations.GetRequestPayload.KeyCompressionType(kct)
+            kct = get.GetRequestPayload.KeyCompressionType(kct)
         if key_wrapping_specification is not None:
             kws = objects.KeyWrappingSpecification(key_wrapping_specification)
 
-        req_pl = operations.GetRequestPayload(unique_identifier=uuid,
-                                              key_format_type=kft,
-                                              key_compression_type=kct,
-                                              key_wrapping_specification=kws)
+        req_pl = get.GetRequestPayload(unique_identifier=uuid,
+                                       key_format_type=kft,
+                                       key_compression_type=kct,
+                                       key_wrapping_specification=kws)
 
         batch_item = messages.RequestBatchItem(operation=operation,
                                                request_payload=req_pl)
@@ -223,7 +561,7 @@ class KMIPProxy(KMIP):
         if unique_identifier is not None:
             uuid = attr.UniqueIdentifier(unique_identifier)
 
-        payload = operations.DestroyRequestPayload(unique_identifier=uuid)
+        payload = destroy.DestroyRequestPayload(unique_identifier=uuid)
 
         batch_item = messages.RequestBatchItem(operation=operation,
                                                request_payload=payload)
@@ -257,7 +595,7 @@ class KMIPProxy(KMIP):
         if object_type is None:
             raise ValueError('object_type cannot be None')
 
-        req_pl = operations.RegisterRequestPayload(
+        req_pl = register.RegisterRequestPayload(
             object_type=object_type,
             template_attribute=template_attribute,
             secret=secret)
@@ -297,18 +635,18 @@ class KMIPProxy(KMIP):
         objgrp = None
 
         if maximum_items is not None:
-            mxi = operations.LocateRequestPayload.MaximumItems(maximum_items)
+            mxi = locate.LocateRequestPayload.MaximumItems(maximum_items)
         if storage_status_mask is not None:
             m = storage_status_mask
-            ssmask = operations.LocateRequestPayload.StorageStatusMask(m)
+            ssmask = locate.LocateRequestPayload.StorageStatusMask(m)
         if object_group_member is not None:
             o = object_group_member
-            objgrp = operations.LocateRequestPayload.ObjectGroupMember(o)
+            objgrp = locate.LocateRequestPayload.ObjectGroupMember(o)
 
-        payload = operations.LocateRequestPayload(maximum_items=mxi,
-                                                  storage_status_mask=ssmask,
-                                                  object_group_member=objgrp,
-                                                  attributes=attributes)
+        payload = locate.LocateRequestPayload(maximum_items=mxi,
+                                              storage_status_mask=ssmask,
+                                              object_group_member=objgrp,
+                                              attributes=attributes)
 
         batch_item = messages.RequestBatchItem(operation=operation,
                                                request_payload=payload)
@@ -377,6 +715,13 @@ class KMIPProxy(KMIP):
     def _receive_message(self):
         return self.protocol.read()
 
+    def _send_and_receive_message(self, request):
+        self._send_message(request)
+        response = messages.ResponseMessage()
+        data = self._receive_message()
+        response.read(data)
+        return response
+
     def _set_variables(self, host, port, keyfile, certfile,
                        cert_reqs, ssl_version, ca_certs,
                        do_handshake_on_connect, suppress_ragged_eofs,
@@ -384,42 +729,42 @@ class KMIPProxy(KMIP):
         conf = ConfigHelper()
 
         self.host = conf.get_valid_value(
-            host, 'client', 'host', conf.DEFAULT_HOST)
+            host, self.config, 'host', conf.DEFAULT_HOST)
 
         self.port = int(conf.get_valid_value(
-            port, 'client', 'port', conf.DEFAULT_PORT))
+            port, self.config, 'port', conf.DEFAULT_PORT))
 
         self.keyfile = conf.get_valid_value(
-            keyfile, 'client', 'keyfile', None)
+            keyfile, self.config, 'keyfile', None)
 
         self.certfile = conf.get_valid_value(
-            certfile, 'client', 'certfile', None)
+            certfile, self.config, 'certfile', None)
 
         self.cert_reqs = getattr(ssl, conf.get_valid_value(
-            cert_reqs, 'client', 'cert_reqs', 'CERT_REQUIRED'))
+            cert_reqs, self.config, 'cert_reqs', 'CERT_REQUIRED'))
 
         self.ssl_version = getattr(ssl, conf.get_valid_value(
-            ssl_version, 'client', 'ssl_version', conf.DEFAULT_SSL_VERSION))
+            ssl_version, self.config, 'ssl_version', conf.DEFAULT_SSL_VERSION))
 
         self.ca_certs = conf.get_valid_value(
-            ca_certs, 'client', 'ca_certs', conf.DEFAULT_CA_CERTS)
+            ca_certs, self.config, 'ca_certs', conf.DEFAULT_CA_CERTS)
 
         if conf.get_valid_value(
-                do_handshake_on_connect, 'client',
+                do_handshake_on_connect, self.config,
                 'do_handshake_on_connect', 'True') == 'True':
             self.do_handshake_on_connect = True
         else:
             self.do_handshake_on_connect = False
 
         if conf.get_valid_value(
-                suppress_ragged_eofs, 'client',
+                suppress_ragged_eofs, self.config,
                 'suppress_ragged_eofs', 'True') == 'True':
             self.suppress_ragged_eofs = True
         else:
             self.suppress_ragged_eofs = False
 
         self.username = conf.get_valid_value(
-            username, 'client', 'username', conf.DEFAULT_USERNAME)
+            username, self.config, 'username', conf.DEFAULT_USERNAME)
 
         self.password = conf.get_valid_value(
-            password, 'client', 'password', conf.DEFAULT_PASSWORD)
+            password, self.config, 'password', conf.DEFAULT_PASSWORD)

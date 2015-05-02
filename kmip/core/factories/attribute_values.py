@@ -21,10 +21,12 @@ from kmip.core.attributes import CryptographicAlgorithm
 from kmip.core.attributes import CryptographicLength
 from kmip.core.attributes import CryptographicUsageMask
 from kmip.core.attributes import CustomAttribute
+from kmip.core.attributes import Digest
 from kmip.core.attributes import Name
 from kmip.core.attributes import ObjectGroup
 from kmip.core.attributes import UniqueIdentifier
 from kmip.core.attributes import ObjectType
+from kmip.core.attributes import OperationPolicyName
 
 from kmip.core import utils
 
@@ -66,7 +68,7 @@ class AttributeValueFactory(object):
         elif name is AttributeType.DIGITAL_SIGNATURE_ALGORITHM:
             value = self._create_digital_signature_algorithm(value)
         elif name is AttributeType.DIGEST:
-            value = self._create_digest(value)
+            value = self._create_digest()
         elif name is AttributeType.OPERATION_POLICY_NAME:
             value = self._create_operation_policy_name(value)
         elif name is AttributeType.CRYPTOGRAPHIC_USAGE_MASK:
@@ -114,7 +116,7 @@ class AttributeValueFactory(object):
         else:
             if not isinstance(name, str):
                 raise ValueError('Unrecognized attribute type: '
-                                 '{}'.format(name))
+                                 '{0}'.format(name))
             elif name.startswith('x-'):
                 # Custom attribute indicated
                 value = self._create_custom_attribute(value)
@@ -181,11 +183,11 @@ class AttributeValueFactory(object):
     def _create_digital_signature_algorithm(self, alg):
         raise NotImplementedError()
 
-    def _create_digest(self, digest):
-        raise NotImplementedError()
+    def _create_digest(self):
+        return Digest()
 
     def _create_operation_policy_name(self, name):
-        raise NotImplementedError()
+        return OperationPolicyName(name)
 
     def _create_cryptographic_usage_mask(self, flags):
         mask = None
