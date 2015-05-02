@@ -2,14 +2,14 @@ Source: python-pykmip
 Section: python
 Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
-Uploaders: Thomas Goirand <zigo@debian.org>
+Uploaders: Thomas Goirand <zigo@debian.org>,
 Build-Depends: debhelper (>= 9),
                dh-python,
                python-all (>= 2.6.6-3~),
                python-setuptools,
                python-sphinx,
                python3-all,
-               python3-setuptools
+               python3-setuptools,
 Build-Depends-Indep: python-coverage,
                      python-enum34,
                      python-fixtures,
@@ -17,7 +17,6 @@ Build-Depends-Indep: python-coverage,
                      python-pytest,
                      python-six,
                      python-sqlalchemy,
-                     python-subunit,
                      python-testresources,
                      python-testscenarios,
                      python-testtools,
@@ -26,13 +25,14 @@ Build-Depends-Indep: python-coverage,
                      python3-fixtures,
                      python3-mock,
                      python3-pytest,
+                     python3-six,
                      python3-sqlalchemy,
                      python3-subunit,
                      python3-testresources,
                      python3-testscenarios,
                      python3-testtools,
                      subunit,
-                     testrepository
+                     testrepository,
 Standards-Version: 3.9.6
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/python-pykmip.git
 Vcs-Git: git://anonscm.debian.org/openstack/python-pykmip.git
@@ -40,9 +40,13 @@ Homepage: https://github.com/OpenKMIP/PyKMIP
 
 Package: python-pykmip
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Provides: python-kmip
-Depends: python-enum34, python-sqlalchemy, ${misc:Depends}, ${python:Depends}
+Pre-Depends: dpkg (>= 1.15.6~),
+Provides: python-kmip,
+Depends: python-enum34,
+         python-six,
+         python-sqlalchemy,
+         ${misc:Depends},
+         ${python:Depends},
 Description: implementation of the Key Management Interoperability Protocol - Python 2.x
  PyKMIP is a Python implementation of the Key Management Interoperability
  Protocol (KMIP) specification, supporting version 1.1 of the KMIP standard.
@@ -62,12 +66,13 @@ Description: implementation of the Key Management Interoperability Protocol - Py
 
 Package: python3-pykmip
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Provides: python3-kmip
+Pre-Depends: dpkg (>= 1.15.6~),
+Provides: python3-kmip,
 Depends: python3-enum34,
+         python3-six,
          python3-sqlalchemy,
          ${misc:Depends},
-         ${python3:Depends}
+         ${python3:Depends},
 Description: KMIP v1.1 library - Python 3.x
  PyKMIP is a Python implementation of the Key Management Interoperability
  Protocol (KMIP) specification, supporting version 1.1 of the KMIP standard.
