@@ -1,6 +1,8 @@
 python-pykmip (0.3.3-1) UNRELEASED; urgency=medium
 
   * New upstream release.
+  * Update gbp configuration for experimental branch.
+  * Update watch file to use Debian pypi redirector.
 
  -- James Page <james.page@ubuntu.com>  Thu, 02 Jul 2015 10:44:42 +0100
 
