@@ -13,11 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import setuptools
+
+version = os.path.join(os.path.dirname(
+    os.path.realpath(__file__)), 'kmip', 'version.py')
+exec(open(version).read())
 
 setuptools.setup(
     name='PyKMIP',
-    version='0.3.1',
+    version=__version__,
     description='KMIP v1.1 library',
     keywords='KMIP',
     author='Peter Hamilton',
@@ -25,7 +30,7 @@ setuptools.setup(
     url='https://github.com/OpenKMIP/PyKMIP',
     license='Apache License, Version 2.0',
     packages=setuptools.find_packages(exclude=["kmip.tests", "kmip.tests.*"]),
-    package_data={'kmip': ['logconfig.ini'],
+    package_data={'kmip': ['kmipconfig.ini', 'logconfig.ini'],
                   'kmip.demos': ['certs/server.crt', 'certs/server.key']},
     install_requires=[
         "enum34",

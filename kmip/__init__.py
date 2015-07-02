@@ -17,6 +17,10 @@ import logging.config
 import os
 import sys
 
+version = os.path.join(os.path.dirname(
+    os.path.realpath(__file__)), 'version.py')
+exec(open(version).read())
+
 path = os.path.join(os.path.dirname(__file__), 'logconfig.ini')
 
 if os.path.exists(path):
@@ -36,7 +40,7 @@ else:
             },
             'handlers': {
                 'consoleHandler': {
-                    'level': 'DEBUG',
+                    'level': 'INFO',
                     'class': 'logging.StreamHandler',
                     'formatter': 'simpleFormatter',
                     'stream': sys.stdout
@@ -44,7 +48,7 @@ else:
             },
             'loggers': {
                 'root': {
-                    'level': 'DEBUG',
+                    'level': 'INFO',
                     'handlers': ['consoleHandler']
                 }
             }

@@ -13,6 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import logging
 import six
 import sys
 
@@ -164,7 +165,11 @@ class Struct(Base):
 class Integer(Base):
     LENGTH = 4
 
-    def __init__(self, value=None, tag=Tags.DEFAULT):
+    # Set for signed 32-bit integers
+    MIN = -2147483648
+    MAX = 2147483647
+
+    def __init__(self, value=None, tag=Tags.DEFAULT, signed=True):
         super(Integer, self).__init__(tag, type=Types.INTEGER)
 
         self.value = value
@@ -173,6 +178,10 @@ class Integer(Base):
 
         self.length = self.LENGTH
         self.padding_length = self.LENGTH
+        if signed:
+            self.pack_string = '!i'
+        else:
+            self.pack_string = '!I'
 
         self.validate()
 
@@ -181,8 +190,8 @@ class Integer(Base):
             raise errors.ReadValueError(Integer.__name__, 'length',
                                         self.LENGTH, self.length)
 
-        self.value = unpack('!i', istream.read(self.length))[0]
-        pad = unpack('!i', istream.read(self.padding_length))[0]
+        self.value = unpack(self.pack_string, istream.read(self.length))[0]
+        pad = unpack(self.pack_string, istream.read(self.padding_length))[0]
 
         if pad is not 0:
             raise errors.ReadValueError(Integer.__name__, 'pad', 0,
@@ -194,27 +203,31 @@ class Integer(Base):
         self.read_value(istream)
 
     def write_value(self, ostream):
-        ostream.write(pack('!i', self.value))
-        ostream.write(pack('!i', 0))
+        ostream.write(pack(self.pack_string, self.value))
+        ostream.write(pack(self.pack_string, 0))
 
     def write(self, ostream):
         super(Integer, self).write(ostream)
         self.write_value(ostream)
 
     def validate(self):
-        self.__validate()
+        """
+        Verify that the value of the Integer object is valid.
 
-    def __validate(self):
+        Raises:
+            TypeError: if the value is not of type int or long
+            ValueError: if the value cannot be represented by a signed 32-bit
+                integer
+        """
         if self.value is not None:
-            data_type = type(self.value)
-            if data_type is not int:
-                raise errors.StateTypeError(Integer.__name__, int,
-                                            data_type)
-            num_bytes = utils.count_bytes(self.value)
-            if num_bytes > self.length:
-                raise errors.StateOverflowError(Integer.__name__,
-                                                'value', self.length,
-                                                num_bytes)
+            if type(self.value) not in six.integer_types:
+                raise TypeError('expected (one of): {0}, observed: {1}'.format(
+                    six.integer_types, type(self.value)))
+            else:
+                if self.value > Integer.MAX:
+                    raise ValueError('integer value greater than accepted max')
+                elif self.value < Integer.MIN:
+                    raise ValueError('integer value less than accepted min')
 
     def __repr__(self):
         return "{0}(value={1})".format(type(self).__name__, repr(self.value))
@@ -393,9 +406,9 @@ class Enumeration(Integer):
         self.validate()
 
         if self.enum is None:
-            super(Enumeration, self).__init__(None, tag)
+            super(Enumeration, self).__init__(None, tag, False)
         else:
-            super(Enumeration, self).__init__(self.enum.value, tag)
+            super(Enumeration, self).__init__(self.enum.value, tag, False)
         self.type = Types.ENUMERATION
 
     def read(self, istream):
@@ -411,74 +424,137 @@ class Enumeration(Integer):
 
     def __validate(self):
         if self.enum is not None:
-            if type(self.enum) is not self.ENUM_TYPE:
-                msg = ErrorStrings.BAD_EXP_RECV
-                raise TypeError(msg.format(Enumeration.__name__, 'value',
-                                           Enum, type(self.enum)))
+            if not isinstance(self.enum, Enum):
+                raise TypeError("expected {0}, observed {1}".format(
+                    type(self.enum), Enum))
 
     def __repr__(self):
         return "{0}(value={1})".format(type(self).__name__, self.enum)
 
     def __str__(self):
-        return "{0} - {1} - {2}".format(
-            type(self.enum), self.enum.name, self.enum.value)
+        return "{0}.{1}".format(type(self.enum).__name__, self.enum.name)
 
 
 class Boolean(Base):
+    """
+    An encodeable object representing a boolean value.
 
-    def __init__(self, value=None, tag=Tags.DEFAULT):
+    A Boolean is one of the KMIP primitive object types. It is encoded as an
+    unsigned, big-endian, 8-byte value, capable of taking the values True (1)
+    or False (0). For more information, see Section 9.1 of the KMIP 1.1
+    specification.
+    """
+    LENGTH = 8
+
+    def __init__(self, value=True, tag=Tags.DEFAULT):
+        """
+        Create a Boolean object.
+
+        Args:
+            value (bool): The value of the Boolean. Optional, defaults to True.
+            tag (Tags): An enumeration defining the tag of the Boolean object.
+                Optional, defaults to Tags.DEFAULT.
+        """
         super(Boolean, self).__init__(tag, type=Types.BOOLEAN)
+        self.logger = logging.getLogger(__name__)
         self.value = value
-        self.length = 8
+        self.length = self.LENGTH
+
+        self.validate()
 
     def read_value(self, istream):
-        value = unpack('!Q', str(istream[0:self.length]))[0]
+        """
+        Read the value of the Boolean object from the input stream.
+
+        Args:
+            istream (Stream): A buffer containing the encoded bytes of the
+                value of a Boolean object. Usually a BytearrayStream object.
+                Required.
+
+        Raises:
+            ValueError: if the read boolean value is not a 0 or 1.
+        """
+        try:
+            value = unpack('!Q', istream.read(self.LENGTH))[0]
+        except:
+            self.logger.error("Error reading boolean value from buffer")
+            raise
 
         if value == 1:
             self.value = True
         elif value == 0:
             self.value = False
         else:
-            raise errors.ReadValueError(Boolean.__name__, 'value',
-                                        value)
+            raise ValueError("expected: 0 or 1, observed: {0}".format(value))
 
-        for _ in range(self.length):
-            istream.pop(0)
+        self.validate()
 
     def read(self, istream):
+        """
+        Read the encoding of the Boolean object from the input stream.
+
+        Args:
+            istream (Stream): A buffer containing the encoded bytes of a
+                Boolean object. Usually a BytearrayStream object. Required.
+        """
         super(Boolean, self).read(istream)
         self.read_value(istream)
 
     def write_value(self, ostream):
-        if self.value is None:
-            raise errors.WriteValueError(Boolean.__name__, 'value',
-                                         self.value)
+        """
+        Write the value of the Boolean object to the output stream.
 
-        data_buffer = bytearray()
-
-        if isinstance(self.value, type(True)):
-            if self.value:
-                data_buffer.extend(pack('!Q', 1))
-            else:
-                data_buffer.extend(pack('!Q', 0))
-        else:
-            raise errors.WriteTypeError(Boolean.__name__, 'value',
-                                        type(self.value))
-
-        ostream.extend(data_buffer)
+        Args:
+            ostream (Stream): A buffer to contain the encoded bytes of the
+                value of a Boolean object. Usually a BytearrayStream object.
+                Required.
+        """
+        try:
+            ostream.write(pack('!Q', self.value))
+        except:
+            self.logger.error("Error writing boolean value to buffer")
+            raise
 
     def write(self, ostream):
+        """
+        Write the encoding of the Boolean object to the output stream.
+
+        Args:
+            ostream (Stream): A buffer to contain the encoded bytes of a
+                Boolean object. Usually a BytearrayStream object. Required.
+        """
         super(Boolean, self).write(ostream)
         self.write_value(ostream)
 
     def validate(self):
-        self.__validate()
+        """
+        Verify that the value of the Boolean object is valid.
 
-    def __validate(self):
-        pass
+        Raises:
+            TypeError: if the value is not of type bool.
+        """
+        if self.value:
+            if not isinstance(self.value, bool):
+                raise TypeError("expected: {0}, observed: {1}".format(
+                    bool, type(self.value)))
 
     def __repr__(self):
-        return '<Boolean, %s>' % (self.value)
+        return "{0}(value={1})".format(type(self).__name__, repr(self.value))
+
+    def __str__(self):
+        return "{0}".format(repr(self.value))
+
+    def __eq__(self, other):
+        if isinstance(other, Boolean):
+            return self.value == other.value
+        else:
+            return NotImplemented
+
+    def __ne__(self, other):
+        if isinstance(other, Boolean):
+            return not self.__eq__(other)
+        else:
+            return NotImplemented
 
 
 class TextString(Base):
