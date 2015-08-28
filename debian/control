@@ -5,10 +5,10 @@ Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: Thomas Goirand <zigo@debian.org>,
 Build-Depends: debhelper (>= 9),
                dh-python,
-               python-all (>= 2.6.6-3~),
+               python-all,
                python-setuptools,
                python-sphinx,
-               python3-all,
+               python3-all (>= 3.4),
                python3-setuptools,
 Build-Depends-Indep: python-coverage,
                      python-enum34,
@@ -21,7 +21,6 @@ Build-Depends-Indep: python-coverage,
                      python-testscenarios,
                      python-testtools,
                      python3-coverage,
-                     python3-enum34,
                      python3-fixtures,
                      python3-mock,
                      python3-pytest,
@@ -40,7 +39,6 @@ Homepage: https://github.com/OpenKMIP/PyKMIP
 
 Package: python-pykmip
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~),
 Provides: python-kmip,
 Depends: python-enum34,
          python-six,
@@ -66,10 +64,8 @@ Description: implementation of the Key Management Interoperability Protocol - Py
 
 Package: python3-pykmip
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~),
 Provides: python3-kmip,
-Depends: python3-enum34,
-         python3-six,
+Depends: python3-six,
          python3-sqlalchemy,
          ${misc:Depends},
          ${python3:Depends},
