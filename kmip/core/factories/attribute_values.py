@@ -14,12 +14,16 @@
 # under the License.
 
 from kmip.core.enums import AttributeType
+from kmip.core.enums import Tags
+
+from kmip.core.primitives import DateTime
 
 from kmip.core.attributes import ApplicationSpecificInformation
 from kmip.core.attributes import ContactInformation
 from kmip.core.attributes import CryptographicAlgorithm
 from kmip.core.attributes import CryptographicLength
 from kmip.core.attributes import CryptographicUsageMask
+from kmip.core.attributes import CryptographicParameters
 from kmip.core.attributes import CustomAttribute
 from kmip.core.attributes import Digest
 from kmip.core.attributes import Name
@@ -27,6 +31,7 @@ from kmip.core.attributes import ObjectGroup
 from kmip.core.attributes import UniqueIdentifier
 from kmip.core.attributes import ObjectType
 from kmip.core.attributes import OperationPolicyName
+from kmip.core.attributes import HashingAlgorithm
 
 from kmip.core import utils
 
@@ -151,7 +156,31 @@ class AttributeValueFactory(object):
         return CryptographicLength(length)
 
     def _create_cryptographic_parameters(self, params):
-        raise NotImplementedError()
+        block_cipher_mode = None
+        if 'block_cipher_mode' in params:
+            block_cipher_mode = CryptographicParameters.BlockCipherMode(
+                params.get('block_cipher_mode'))
+
+        padding_method = None
+        if 'padding_method' in params:
+            padding_method = CryptographicParameters.PaddingMethod(
+                params.get('padding_method'))
+
+        key_role_type = None
+        if 'key_role_type' in params:
+            key_role_type = CryptographicParameters.KeyRoleType(
+                params.get('key_role_type'))
+
+        hashing_algorithm = None
+        if 'hashing_algorithm' in params:
+            hashing_algorithm = HashingAlgorithm(
+                params.get("hashing_algorithm"))
+
+        return CryptographicParameters(
+            block_cipher_mode=block_cipher_mode,
+            padding_method=padding_method,
+            hashing_algorithm=hashing_algorithm,
+            key_role_type=key_role_type)
 
     def _create_cryptographic_domain_parameters(self, params):
         raise NotImplementedError()
@@ -208,34 +237,34 @@ class AttributeValueFactory(object):
         raise NotImplementedError()
 
     def _create_initial_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.INITIAL_DATE)
 
     def _create_activation_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.ACTIVATION_DATE)
 
     def _create_process_start_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.PROCESS_START_DATE)
 
     def _create_protect_stop_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.PROTECT_STOP_DATE)
 
     def _create_deactivation_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.DEACTIVATION_DATE)
 
     def _create_destroy_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.DESTROY_DATE)
 
     def _create_compromise_occurrence_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.COMPROMISE_OCCURRENCE_DATE)
 
     def _create_compromise_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.COMPROMISE_DATE)
 
     def _create_revocation_reason(self, reason):
         raise NotImplementedError()
 
     def _create_archive_date(self, date):
-        raise NotImplementedError()
+        return DateTime(value=date, tag=Tags.ARCHIVE_DATE)
 
     def _create_object_group(self, group):
         if group is not None and not isinstance(group, str):

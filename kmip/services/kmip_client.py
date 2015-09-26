@@ -13,6 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from kmip.services.results import ActivateResult
 from kmip.services.results import CreateResult
 from kmip.services.results import CreateKeyPairResult
 from kmip.services.results import DestroyResult
@@ -22,6 +23,7 @@ from kmip.services.results import LocateResult
 from kmip.services.results import QueryResult
 from kmip.services.results import RegisterResult
 from kmip.services.results import RekeyKeyPairResult
+from kmip.services.results import RevokeResult
 
 from kmip.core import attributes as attr
 
@@ -42,6 +44,7 @@ from kmip.core.messages.contents import ProtocolVersion
 
 from kmip.core.messages import messages
 
+from kmip.core.messages.payloads import activate
 from kmip.core.messages.payloads import create
 from kmip.core.messages.payloads import create_key_pair
 from kmip.core.messages.payloads import destroy
@@ -51,6 +54,7 @@ from kmip.core.messages.payloads import locate
 from kmip.core.messages.payloads import query
 from kmip.core.messages.payloads import rekey_key_pair
 from kmip.core.messages.payloads import register
+from kmip.core.messages.payloads import revoke
 
 from kmip.services.kmip_protocol import KMIPProtocol
 
@@ -74,7 +78,7 @@ class KMIPProxy(KMIP):
                  cert_reqs=None, ssl_version=None, ca_certs=None,
                  do_handshake_on_connect=None,
                  suppress_ragged_eofs=None,
-                 username=None, password=None, config='client'):
+                 username=None, password=None, timeout=30, config='client'):
         super(KMIPProxy, self).__init__()
         self.logger = logging.getLogger(__name__)
         self.credential_factory = CredentialFactory()
@@ -83,7 +87,7 @@ class KMIPProxy(KMIP):
         self._set_variables(host, port, keyfile, certfile,
                             cert_reqs, ssl_version, ca_certs,
                             do_handshake_on_connect, suppress_ragged_eofs,
-                            username, password)
+                            username, password, timeout)
         self.batch_items = []
 
         self.conformance_clauses = [
@@ -92,6 +96,7 @@ class KMIPProxy(KMIP):
         self.authentication_suites = [
             AuthenticationSuite.BASIC,
             AuthenticationSuite.TLS12]
+        self.socket = None
 
     def get_supported_conformance_clauses(self):
         """
@@ -213,10 +218,24 @@ class KMIPProxy(KMIP):
             suppress_ragged_eofs=self.suppress_ragged_eofs)
         self.protocol = KMIPProtocol(self.socket)
 
-        self.socket.connect((self.host, self.port))
+        self.socket.settimeout(self.timeout)
+
+        try:
+            self.socket.connect((self.host, self.port))
+        except socket.timeout as e:
+            self.logger.error("timeout occurred while connecting to appliance")
+            raise e
+
+    def __del__(self):
+        # Close the socket properly, helpful in case close() is not called.
+        self.close()
 
     def close(self):
-        self.socket.shutdown(socket.SHUT_RDWR)
+        # Shutdown and close the socket.
+        if self.socket:
+            self.socket.shutdown(socket.SHUT_RDWR)
+            self.socket.close()
+            self.socket = None
 
     def create(self, object_type, template_attribute, credential=None):
         object_type = attr.ObjectType(object_type)
@@ -239,6 +258,19 @@ class KMIPProxy(KMIP):
             results = self._process_batch_items(response)
             return results[0]
 
+    def activate(self, uuid=None, credential=None):
+        """
+        Send an Activate request to the server.
+
+        Args:
+            uuid (string): The unique identifier of a managed cryptographic
+                object that should be activated.
+            credential (Credential): A Credential object containing
+                authentication information for the server. Optional, defaults
+                to None.
+        """
+        return self._activate(uuid, credential=credential)
+
     def get(self, uuid=None, key_format_type=None, key_compression_type=None,
             key_wrapping_specification=None, credential=None):
         return self._get(
@@ -247,6 +279,12 @@ class KMIPProxy(KMIP):
             key_compression_type=key_compression_type,
             key_wrapping_specification=key_wrapping_specification,
             credential=credential)
+
+    def revoke(self, uuid, reason, message=None, credential=None):
+        return self._revoke(unique_identifier=uuid,
+                            revocation_code=reason,
+                            revocation_message=message,
+                            credential=credential)
 
     def destroy(self, uuid, credential=None):
         return self._destroy(unique_identifier=uuid,
@@ -552,6 +590,37 @@ class KMIPProxy(KMIP):
                            payload_secret)
         return result
 
+    def _activate(self, unique_identifier=None, credential=None):
+        operation = Operation(OperationEnum.ACTIVATE)
+
+        uuid = None
+        if unique_identifier is not None:
+            uuid = attr.UniqueIdentifier(unique_identifier)
+
+        payload = activate.ActivateRequestPayload(unique_identifier=uuid)
+
+        batch_item = messages.RequestBatchItem(operation=operation,
+                                               request_payload=payload)
+        message = self._build_request_message(credential, [batch_item])
+        self._send_message(message)
+        message = messages.ResponseMessage()
+        data = self._receive_message()
+        message.read(data)
+        batch_items = message.batch_items
+        batch_item = batch_items[0]
+        payload = batch_item.response_payload
+
+        if payload is None:
+            payload_unique_identifier = None
+        else:
+            payload_unique_identifier = payload.unique_identifier
+
+        result = ActivateResult(batch_item.result_status,
+                                batch_item.result_reason,
+                                batch_item.result_message,
+                                payload_unique_identifier)
+        return result
+
     def _destroy(self,
                  unique_identifier=None,
                  credential=None):
@@ -583,6 +652,43 @@ class KMIPProxy(KMIP):
                                batch_item.result_reason,
                                batch_item.result_message,
                                payload_unique_identifier)
+        return result
+
+    def _revoke(self, unique_identifier=None, revocation_code=None,
+                revocation_message=None, credential=None):
+        operation = Operation(OperationEnum.REVOKE)
+
+        reason = objects.RevocationReason(code=revocation_code,
+                                          message=revocation_message)
+        uuid = None
+        if unique_identifier is not None:
+            uuid = attr.UniqueIdentifier(unique_identifier)
+
+        payload = revoke.RevokeRequestPayload(
+            unique_identifier=uuid,
+            revocation_reason=reason,
+            compromise_date=None)  # TODO(tim-kelsey): sort out date handling
+
+        batch_item = messages.RequestBatchItem(operation=operation,
+                                               request_payload=payload)
+        message = self._build_request_message(credential, [batch_item])
+        self._send_message(message)
+        message = messages.ResponseMessage()
+        data = self._receive_message()
+        message.read(data)
+        batch_items = message.batch_items
+        batch_item = batch_items[0]
+        payload = batch_item.response_payload
+
+        if payload is None:
+            payload_unique_identifier = None
+        else:
+            payload_unique_identifier = payload.unique_identifier
+
+        result = RevokeResult(batch_item.result_status,
+                              batch_item.result_reason,
+                              batch_item.result_message,
+                              payload_unique_identifier)
         return result
 
     def _register(self,
@@ -725,7 +831,7 @@ class KMIPProxy(KMIP):
     def _set_variables(self, host, port, keyfile, certfile,
                        cert_reqs, ssl_version, ca_certs,
                        do_handshake_on_connect, suppress_ragged_eofs,
-                       username, password):
+                       username, password, timeout):
         conf = ConfigHelper()
 
         self.host = conf.get_valid_value(
@@ -768,3 +874,12 @@ class KMIPProxy(KMIP):
 
         self.password = conf.get_valid_value(
             password, self.config, 'password', conf.DEFAULT_PASSWORD)
+
+        self.timeout = conf.get_valid_value(
+            timeout, self.config, 'timeout', conf.DEFAULT_TIMEOUT)
+        if self.timeout < 0:
+            self.logger.warning(
+                "Negative timeout value specified, "
+                "resetting to safe default of {0} seconds".format(
+                    conf.DEFAULT_TIMEOUT))
+            self.timeout = conf.DEFAULT_TIMEOUT

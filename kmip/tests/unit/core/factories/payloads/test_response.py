@@ -18,6 +18,7 @@ import testtools
 from kmip.core.enums import Operation
 from kmip.core.factories.payloads.response import ResponsePayloadFactory
 
+from kmip.core.messages.payloads import activate
 from kmip.core.messages.payloads import create
 from kmip.core.messages.payloads import create_key_pair
 from kmip.core.messages.payloads import destroy
@@ -27,6 +28,7 @@ from kmip.core.messages.payloads import locate
 from kmip.core.messages.payloads import query
 from kmip.core.messages.payloads import rekey_key_pair
 from kmip.core.messages.payloads import register
+from kmip.core.messages.payloads import revoke
 
 
 class TestResponsePayloadFactory(testtools.TestCase):
@@ -115,12 +117,12 @@ class TestResponsePayloadFactory(testtools.TestCase):
             self.factory.create, Operation.GET_USAGE_ALLOCATION)
 
     def test_create_activate_payload(self):
-        self._test_not_implemented(
-            self.factory.create, Operation.ACTIVATE)
+        payload = self.factory.create(Operation.ACTIVATE)
+        self._test_payload_type(payload, activate.ActivateResponsePayload)
 
     def test_create_revoke_payload(self):
-        self._test_not_implemented(
-            self.factory.create, Operation.REVOKE)
+        payload = self.factory.create(Operation.REVOKE)
+        self._test_payload_type(payload, revoke.RevokeResponsePayload)
 
     def test_create_destroy_payload(self):
         payload = self.factory.create(Operation.DESTROY)
