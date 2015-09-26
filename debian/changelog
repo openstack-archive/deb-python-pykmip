@@ -1,6 +1,7 @@
 python-pykmip (0.4.0-1) experimental; urgency=medium
 
   * New upstream release.
+  * AUTHORS.txt removed from upstream, removing from debian/docs.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 26 Sep 2015 23:53:58 +0200
 
