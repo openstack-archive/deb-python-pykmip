@@ -1,3 +1,9 @@
+python-pykmip (0.4.0-2) unstable; urgency=medium
+
+  * Uploading to unstable.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 16 Oct 2015 10:32:42 +0000
+
 python-pykmip (0.4.0-1) experimental; urgency=medium
 
   * New upstream release.
