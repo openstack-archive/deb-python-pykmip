@@ -15,6 +15,7 @@
 
 from kmip.core.factories.payloads import PayloadFactory
 
+from kmip.core.messages.payloads import activate
 from kmip.core.messages.payloads import create
 from kmip.core.messages.payloads import create_key_pair
 from kmip.core.messages.payloads import destroy
@@ -24,6 +25,7 @@ from kmip.core.messages.payloads import locate
 from kmip.core.messages.payloads import query
 from kmip.core.messages.payloads import rekey_key_pair
 from kmip.core.messages.payloads import register
+from kmip.core.messages.payloads import revoke
 
 
 class ResponsePayloadFactory(PayloadFactory):
@@ -54,3 +56,9 @@ class ResponsePayloadFactory(PayloadFactory):
 
     def _create_discover_versions_payload(self):
         return discover_versions.DiscoverVersionsResponsePayload()
+
+    def _create_activate_payload(self):
+        return activate.ActivateResponsePayload()
+
+    def _create_revoke_payload(self):
+        return revoke.RevokeResponsePayload()
