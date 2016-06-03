@@ -1,9 +1,13 @@
-python-pykmip (0.4.0-3) UNRELEASED; urgency=medium
+python-pykmip (0.5.0-1) experimental; urgency=medium
 
+  [ Ondřej Nový ]
   * Fixed VCS URLs (https).
   * d/rules: Changed UPSTREAM_GIT protocol to https
 
- -- Ondřej Nový <novy@ondrej.org>  Sun, 28 Feb 2016 15:47:24 +0100
+  [ Thomas Goirand ]
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 03 Jun 2016 09:21:34 +0000
 
 python-pykmip (0.4.0-2) unstable; urgency=medium
 
