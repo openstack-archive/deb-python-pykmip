@@ -19,6 +19,8 @@ override_dh_install:
 			--root $(CURDIR)/debian/python3-pykmip; \
 	done
 	rm -rf $(CURDIR)/debian/python*-pykmip/usr/lib/python*/dist-packages/*.pth
+	mv $(CURDIR)/debian/python-pykmip/usr/bin/pykmip-server $(CURDIR)/debian/python-pykmip/usr/bin/python2-pykmip-server
+	mv $(CURDIR)/debian/python3-pykmip/usr/bin/pykmip-server $(CURDIR)/debian/python3-pykmip/usr/bin/python3-pykmip-server
 
 override_dh_auto_test:
 ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))

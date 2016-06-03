@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = "remove" ] ; then
+	update-alternatives --remove pykmip-server /usr/bin/python2-pykmip-server
+fi
+
+#DEBHELPER#
+
+exit 0
