@@ -7,6 +7,7 @@ python-pykmip (0.5.0-1) experimental; urgency=medium
   [ Thomas Goirand ]
   * New upstream release.
   * Using update-alternatives to manage /usr/bin/pykmip-server.
+  * Fixed debian/copyright ordering.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 03 Jun 2016 09:21:34 +0000
 
