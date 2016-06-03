@@ -13,6 +13,11 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import binascii
+import logging
+import optparse
+import sys
+
 from kmip.core.attributes import CryptographicAlgorithm
 from kmip.core.attributes import CryptographicLength
 
@@ -38,9 +43,17 @@ from kmip.core.secrets import PublicKey
 from kmip.core.secrets import SymmetricKey
 from kmip.core.secrets import SecretData
 
-import binascii
-import optparse
-import sys
+
+def build_console_logger(level):
+    logger = logging.getLogger('demo')
+    logger.setLevel(level)
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
 
 
 def build_cli_parser(operation=None):
@@ -161,6 +174,15 @@ def build_cli_parser(operation=None):
             dest="format",
             help=("Format in which to retrieve the secret. Supported formats "
                   "include: RAW, PKCS_1, PKCS_8, X_509"))
+    elif operation is Operation.GET_ATTRIBUTE_LIST:
+        parser.add_option(
+            "-i",
+            "--uuid",
+            action="store",
+            type="str",
+            default=None,
+            dest="uuid",
+            help="UID of a managed object")
     elif operation is Operation.LOCATE:
         parser.add_option(
             "-n",
@@ -190,6 +212,16 @@ def build_cli_parser(operation=None):
             help=("Type of the object to register. Supported types include: "
                   "CERTIFICATE, PRIVATE_KEY, PUBLIC_KEY, SYMMETRIC_KEY, "
                   "SECRET_DATA"))
+    elif operation is Operation.DISCOVER_VERSIONS:
+        parser.add_option(
+                "-v",
+                "--protocol-versions",
+                action="store",
+                type="str",
+                default=None,
+                dest="protocol_versions",
+                help=("Protocol versions supported by client. "
+                      "ex. '1.1,1.2 1.3'"))
 
     return parser
 
@@ -459,6 +491,8 @@ def log_secret(logger, secret_type, secret_value):
         log_private_key(logger, secret_value)
     elif secret_type is ObjectType.PUBLIC_KEY:
         log_public_key(logger, secret_value)
+    elif secret_type is ObjectType.SYMMETRIC_KEY:
+        log_symmetric_key(logger, secret_value)
     else:
         logger.info('generic secret: {0}'.format(secret_value))
 
@@ -479,6 +513,12 @@ def log_public_key(logger, public_key):
 
 def log_private_key(logger, private_key):
     key_block = private_key.key_block
+
+    log_key_block(logger, key_block)
+
+
+def log_symmetric_key(logger, skey):
+    key_block = skey.key_block
 
     log_key_block(logger, key_block)
 

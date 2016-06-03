@@ -20,6 +20,8 @@ from kmip.core.attributes import PrivateKeyUniqueIdentifier
 from kmip.core.enums import AuthenticationSuite
 from kmip.core.enums import ConformanceClause
 from kmip.core.enums import CredentialType
+from kmip.core.enums import ResultStatus as ResultStatusEnum
+from kmip.core.enums import ResultReason as ResultReasonEnum
 from kmip.core.enums import Operation as OperationEnum
 from kmip.core.enums import QueryFunction as QueryFunctionEnum
 
@@ -31,11 +33,15 @@ from kmip.core.messages.messages import RequestBatchItem
 from kmip.core.messages.messages import ResponseBatchItem
 from kmip.core.messages.messages import ResponseMessage
 from kmip.core.messages.contents import Operation
+from kmip.core.messages.contents import ResultStatus
+from kmip.core.messages.contents import ResultReason
+from kmip.core.messages.contents import ResultMessage
 from kmip.core.messages.contents import ProtocolVersion
 from kmip.core.messages.payloads.create_key_pair import \
     CreateKeyPairRequestPayload, CreateKeyPairResponsePayload
 from kmip.core.messages.payloads.discover_versions import \
     DiscoverVersionsRequestPayload, DiscoverVersionsResponsePayload
+from kmip.core.messages.payloads import get_attribute_list
 from kmip.core.messages.payloads.query import \
     QueryRequestPayload, QueryResponsePayload
 from kmip.core.messages.payloads.rekey_key_pair import \
@@ -54,10 +60,17 @@ from kmip.services.kmip_client import KMIPProxy
 
 from kmip.services.results import CreateKeyPairResult
 from kmip.services.results import DiscoverVersionsResult
+from kmip.services.results import GetAttributeListResult
+from kmip.services.results import OperationResult
 from kmip.services.results import QueryResult
 from kmip.services.results import RekeyKeyPairResult
 
 import kmip.core.utils as utils
+
+import mock
+import os
+import socket
+import ssl
 
 
 class TestKMIPClient(TestCase):
@@ -70,6 +83,16 @@ class TestKMIPClient(TestCase):
         self.secret_factory = SecretFactory()
 
         self.client = KMIPProxy()
+
+        KMIP_PORT = 9090
+        CA_CERTS_PATH = os.path.normpath(os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), '../utils/certs/server.crt'))
+
+        self.mock_client = KMIPProxy(host="IP_ADDR_1, IP_ADDR_2",
+                                     port=KMIP_PORT, ca_certs=CA_CERTS_PATH)
+        self.mock_client.socket = mock.MagicMock()
+        self.mock_client.socket.connect = mock.MagicMock()
+        self.mock_client.socket.close = mock.MagicMock()
 
     def tearDown(self):
         super(TestKMIPClient, self).tearDown()
@@ -86,10 +109,10 @@ class TestKMIPClient(TestCase):
 
         message = utils.build_er_error(credential.__class__, 'type',
                                        cred_type,
-                                       credential.credential_type.enum,
+                                       credential.credential_type.value,
                                        'value')
         self.assertEqual(CredentialType.USERNAME_AND_PASSWORD,
-                         credential.credential_type.enum,
+                         credential.credential_type.value,
                          message)
 
         message = utils.build_er_error(
@@ -149,7 +172,7 @@ class TestKMIPClient(TestCase):
         msg = base.format(Operation, operation)
         self.assertIsInstance(operation, Operation, msg)
 
-        operation_enum = operation.enum
+        operation_enum = operation.value
 
         msg = base.format(OperationEnum.CREATE_KEY_PAIR, operation_enum)
         self.assertEqual(OperationEnum.CREATE_KEY_PAIR, operation_enum, msg)
@@ -198,7 +221,7 @@ class TestKMIPClient(TestCase):
         msg = base.format(Operation, operation)
         self.assertIsInstance(operation, Operation, msg)
 
-        operation_enum = operation.enum
+        operation_enum = operation.value
 
         msg = base.format(OperationEnum.REKEY_KEY_PAIR, operation_enum)
         self.assertEqual(OperationEnum.REKEY_KEY_PAIR, operation_enum, msg)
@@ -252,7 +275,7 @@ class TestKMIPClient(TestCase):
         msg = base.format(Operation, operation)
         self.assertIsInstance(operation, Operation, msg)
 
-        operation_enum = operation.enum
+        operation_enum = operation.value
 
         msg = base.format(OperationEnum.QUERY, operation_enum)
         self.assertEqual(OperationEnum.QUERY, operation_enum, msg)
@@ -288,7 +311,7 @@ class TestKMIPClient(TestCase):
         msg = base.format(Operation, operation)
         self.assertIsInstance(operation, Operation, msg)
 
-        operation_enum = operation.enum
+        operation_enum = operation.value
 
         msg = base.format(OperationEnum.DISCOVER_VERSIONS, operation_enum)
         self.assertEqual(OperationEnum.DISCOVER_VERSIONS, operation_enum, msg)
@@ -313,6 +336,19 @@ class TestKMIPClient(TestCase):
     def test_build_discover_versions_batch_item_no_input(self):
         protocol_versions = None
         self._test_build_discover_versions_batch_item(protocol_versions)
+
+    def test_build_get_attribute_list_batch_item(self):
+        uid = '00000000-1111-2222-3333-444444444444'
+        batch_item = self.client._build_get_attribute_list_batch_item(uid)
+
+        self.assertIsInstance(batch_item, RequestBatchItem)
+        self.assertIsInstance(batch_item.operation, Operation)
+        self.assertEqual(
+            OperationEnum.GET_ATTRIBUTE_LIST, batch_item.operation.value)
+        self.assertIsInstance(
+            batch_item.request_payload,
+            get_attribute_list.GetAttributeListRequestPayload)
+        self.assertEqual(uid, batch_item.request_payload.uid)
 
     def test_process_batch_items(self):
         batch_item = ResponseBatchItem(
@@ -343,6 +379,28 @@ class TestKMIPClient(TestCase):
         msg = "number of results " + base.format(0, len(results))
         self.assertEqual(0, len(results), msg)
 
+    def test_process_batch_item_with_error(self):
+        result_status = ResultStatus(ResultStatusEnum.OPERATION_FAILED)
+        result_reason = ResultReason(ResultReasonEnum.INVALID_MESSAGE)
+        result_message = ResultMessage("message")
+
+        batch_item = ResponseBatchItem(
+            result_status=result_status,
+            result_reason=result_reason,
+            result_message=result_message)
+        response = ResponseMessage(batch_items=[batch_item])
+        results = self.client._process_batch_items(response)
+
+        base = "expected {0}, received {1}"
+        msg = "number of results " + base.format(1, len(results))
+        self.assertEqual(1, len(results), msg)
+
+        result = results[0]
+        self.assertIsInstance(result, OperationResult)
+        self.assertEqual(result.result_status, result_status)
+        self.assertEqual(result.result_reason, result_reason)
+        self.assertEqual(result.result_message.value, "message")
+
     def test_get_batch_item_processor(self):
         base = "expected {0}, received {1}"
 
@@ -359,7 +417,13 @@ class TestKMIPClient(TestCase):
         self.assertEqual(expected, observed, msg)
 
         self.assertRaisesRegexp(ValueError, "no processor for operation",
-                                self.client._get_batch_item_processor, None)
+                                self.client._get_batch_item_processor,
+                                0xA5A5A5A5)
+
+        expected = self.client._process_get_attribute_list_batch_item
+        observed = self.client._get_batch_item_processor(
+            OperationEnum.GET_ATTRIBUTE_LIST)
+        self.assertEqual(expected, observed)
 
     def _test_equality(self, expected, observed):
         msg = "expected {0}, observed {1}".format(expected, observed)
@@ -466,6 +530,93 @@ class TestKMIPClient(TestCase):
     def test_process_discover_versions_batch_item_no_results(self):
         protocol_versions = None
         self._test_process_discover_versions_batch_item(protocol_versions)
+
+    def test_process_get_attribute_list_batch_item(self):
+        uid = '00000000-1111-2222-3333-444444444444'
+        names = ['Cryptographic Algorithm', 'Cryptographic Length']
+        payload = get_attribute_list.GetAttributeListResponsePayload(
+            uid=uid, attribute_names=names)
+        batch_item = ResponseBatchItem(
+            operation=Operation(OperationEnum.GET_ATTRIBUTE_LIST),
+            response_payload=payload)
+        result = self.client._process_get_attribute_list_batch_item(batch_item)
+
+        self.assertIsInstance(result, GetAttributeListResult)
+        self.assertEqual(uid, result.uid)
+        self.assertEqual(names, result.names)
+
+    def test_host_list_import_string(self):
+        """
+        This test verifies that the client can process a string with
+        multiple IP addresses specified in it. It also tests that
+        unnecessary spaces are ignored.
+        """
+
+        host_list_string = '127.0.0.1,127.0.0.3,  127.0.0.5'
+        host_list_expected = ['127.0.0.1', '127.0.0.3', '127.0.0.5']
+
+        self.client._set_variables(host=host_list_string,
+                                   port=None, keyfile=None, certfile=None,
+                                   cert_reqs=None, ssl_version=None,
+                                   ca_certs=None,
+                                   do_handshake_on_connect=False,
+                                   suppress_ragged_eofs=None, username=None,
+                                   password=None, timeout=None)
+        self.assertEqual(host_list_expected, self.client.host_list)
+
+    def test_host_is_invalid_input(self):
+        """
+        This test verifies that invalid values are not processed when
+        setting the client object parameters
+        """
+        host = 1337
+        expected_error = TypeError
+
+        kwargs = {'host': host, 'port': None, 'keyfile': None,
+                  'certfile': None, 'cert_reqs': None, 'ssl_version': None,
+                  'ca_certs': None, 'do_handshake_on_connect': False,
+                  'suppress_ragged_eofs': None, 'username': None,
+                  'password': None, 'timeout': None}
+
+        self.assertRaises(expected_error, self.client._set_variables,
+                          **kwargs)
+
+    @mock.patch.object(KMIPProxy, '_create_socket')
+    def test_open_server_conn_failover_fail(self, mock_create_socket):
+        """
+        This test verifies that the KMIP client throws an exception if no
+        servers are available for connection
+        """
+        mock_create_socket.return_value = mock.MagicMock()
+
+        # Assumes both IP addresses fail connection attempts
+        self.mock_client.socket.connect.side_effect = [Exception, Exception]
+
+        self.assertRaises(Exception, self.mock_client.open)
+
+    @mock.patch.object(KMIPProxy, '_create_socket')
+    def test_open_server_conn_failover_succeed(self, mock_create_socket):
+        """
+        This test verifies that the KMIP client can setup a connection if at
+        least one connection is established
+        """
+        mock_create_socket.return_value = mock.MagicMock()
+
+        # Assumes IP_ADDR_1 is a bad address and IP_ADDR_2 is a good address
+        self.mock_client.socket.connect.side_effect = [Exception, None]
+
+        self.mock_client.open()
+
+        self.assertEqual('IP_ADDR_2', self.mock_client.host)
+
+    def test_socket_ssl_wrap(self):
+        """
+        This test tests that the KMIP socket is successfully wrapped into an
+        ssl socket
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client._create_socket(sock)
+        self.assertEqual(ssl.SSLSocket, type(self.client.socket))
 
 
 class TestClientProfileInformation(TestCase):

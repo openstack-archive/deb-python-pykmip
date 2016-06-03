@@ -33,6 +33,7 @@ from kmip.core.factories.secrets import SecretFactory
 from kmip.core.messages.contents import ResultStatus
 from kmip.core.messages.contents import ResultReason
 from kmip.core.messages.contents import ResultMessage
+from kmip.core.messages.contents import ProtocolVersion
 
 from kmip.core.misc import KeyFormatType
 
@@ -40,14 +41,15 @@ from kmip.core.objects import KeyBlock
 from kmip.core.objects import KeyMaterial
 from kmip.core.objects import KeyValue
 from kmip.core.objects import TemplateAttribute
-from kmip.core.repo.mem_repo import MemRepo
 from kmip.core.secrets import SymmetricKey
+from kmip.services.server.repo.mem_repo import MemRepo
 from kmip.services.results import CreateResult
 from kmip.services.results import DestroyResult
 from kmip.services.results import GetResult
 from kmip.services.results import OperationResult
 from kmip.services.results import RegisterResult
 from kmip.services.results import LocateResult
+from kmip.services.results import DiscoverVersionsResult
 
 
 class KMIP(object):
@@ -85,6 +87,9 @@ class KMIP(object):
                credential=None):
         raise NotImplementedError()
 
+    def discover_versions(self, protocol_versions=None):
+        raise NotImplementedError()
+
 
 class KMIPImpl(KMIP):
 
@@ -95,6 +100,10 @@ class KMIPImpl(KMIP):
         self.secret_factory = SecretFactory()
         self.attribute_factory = AttributeFactory()
         self.repo = MemRepo()
+        self.protocol_versions = [
+                ProtocolVersion.create(1, 1),
+                ProtocolVersion.create(1, 0)
+        ]
 
     def create(self, object_type, template_attribute, credential=None):
         self.logger.debug('create() called')
@@ -102,24 +111,18 @@ class KMIPImpl(KMIP):
         bit_length = 256
         attributes = template_attribute.attributes
         ret_attributes = []
-        if object_type.enum != OT.SYMMETRIC_KEY:
+        if object_type.value != OT.SYMMETRIC_KEY:
             self.logger.debug('invalid object type')
             return self._get_invalid_field_result('invalid object type')
         try:
-            alg_attr =\
-                self._validate_req_field(attributes,
-                                         AT.CRYPTOGRAPHIC_ALGORITHM.value,
-                                         (CA.AES.value,),
-                                         'unsupported algorithm')
-            len_attr = self._validate_req_field(attributes,
-                                                AT.CRYPTOGRAPHIC_LENGTH.value,
-                                                (128, 256, 512),
-                                                'unsupported key length',
-                                                False)
-            self._validate_req_field(attributes,
-                                     AT.CRYPTOGRAPHIC_USAGE_MASK.value,
-                                     (),
-                                     '')
+            alg_attr = self._validate_req_field(
+                attributes, AT.CRYPTOGRAPHIC_ALGORITHM.value,
+                (CA.AES,), 'unsupported algorithm')
+            len_attr = self._validate_req_field(
+                attributes, AT.CRYPTOGRAPHIC_LENGTH.value,
+                (128, 256, 512), 'unsupported key length', False)
+            self._validate_req_field(
+                attributes, AT.CRYPTOGRAPHIC_USAGE_MASK.value, (), '')
         except InvalidFieldException as e:
             self.logger.debug('InvalidFieldException raised')
             return e.result
@@ -158,7 +161,7 @@ class KMIPImpl(KMIP):
         if object_type is None:
             self.logger.debug('invalid object type')
             return self._get_missing_field_result('object type')
-        if object_type.enum != OT.SYMMETRIC_KEY:
+        if object_type.value != OT.SYMMETRIC_KEY:
             self.logger.debug('invalid object type')
             return self._get_invalid_field_result('invalid object type')
         if secret is None or not isinstance(secret, SymmetricKey):
@@ -173,18 +176,14 @@ class KMIPImpl(KMIP):
 
         self.logger.debug('Verifying all attributes are valid and set')
         try:
-            self._validate_req_field(attributes,
-                                     AT.CRYPTOGRAPHIC_ALGORITHM.value,
-                                     (CA.AES.value,),
-                                     'unsupported algorithm')
-            self._validate_req_field(attributes,
-                                     AT.CRYPTOGRAPHIC_LENGTH.value,
-                                     (128, 256, 512),
-                                     'unsupported key length')
-            self._validate_req_field(attributes,
-                                     AT.CRYPTOGRAPHIC_USAGE_MASK.value,
-                                     (),
-                                     '')
+            self._validate_req_field(
+                attributes, AT.CRYPTOGRAPHIC_ALGORITHM.value, (CA.AES,),
+                'unsupported algorithm')
+            self._validate_req_field(
+                attributes, AT.CRYPTOGRAPHIC_LENGTH.value, (128, 256, 512),
+                'unsupported key length')
+            self._validate_req_field(
+                attributes, AT.CRYPTOGRAPHIC_USAGE_MASK.value, (), '')
         except InvalidFieldException as e:
             self.logger.debug('InvalidFieldException raised')
             return RegisterResult(e.result.result_status,
@@ -220,7 +219,7 @@ class KMIPImpl(KMIP):
         if key_format_type is None:
             self.logger.debug('key format type is None, setting to raw')
             key_format_type = KeyFormatType(KeyFormatTypeEnum.RAW)
-        if key_format_type.enum != KeyFormatTypeEnum.RAW:
+        if key_format_type.value != KeyFormatTypeEnum.RAW:
             self.logger.debug('key format type is not raw')
             reason = ResultReason(ResultReasonEnum.
                                   KEY_FORMAT_TYPE_NOT_SUPPORTED)
@@ -288,6 +287,32 @@ class KMIPImpl(KMIP):
             reason = ResultReason(ResultReasonEnum.OPERATION_NOT_SUPPORTED)
             return LocateResult(ResultStatus(RS.OPERATION_FAILED),
                                 result_reason=reason, result_message=msg)
+
+    def discover_versions(self, protocol_versions=None):
+        self.logger.debug(
+            "discover_versions(protocol_versions={0}) called".format(
+                protocol_versions))
+        msg = 'get protocol versions supported by server'
+
+        result_versions = list()
+        if protocol_versions:
+            msg += " and client; client versions {0}".format(protocol_versions)
+            for version in protocol_versions:
+                if version in self.protocol_versions:
+                    result_versions.append(version)
+        else:
+            result_versions = self.protocol_versions
+
+        self.logger.debug(msg)
+        try:
+            return DiscoverVersionsResult(ResultStatus(RS.SUCCESS),
+                                          protocol_versions=result_versions)
+        except Exception:
+            msg = ResultMessage('DiscoverVersions Operation Failed')
+            reason = ResultReason(ResultReasonEnum.GENERAL_FAILURE)
+            return DiscoverVersionsResult(ResultStatus(RS.OPERATION_FAILED),
+                                          result_reason=reason,
+                                          result_message=msg)
 
     def _validate_req_field(self, attrs, name, expected, msg, required=True):
         self.logger.debug('Validating attribute %s' % name)
@@ -370,7 +395,7 @@ class KMIPImpl(KMIP):
             self.logger.debug('crypto_alg set on key block')
             self.logger.debug('adding crypto algorithm attribute')
             at = AT.CRYPTOGRAPHIC_ALGORITHM
-            alg = key_block.cryptographic_algorithm.enum
+            alg = key_block.cryptographic_algorithm.value
             attributes.append(self.attribute_factory.create_attribute(at, alg))
         if key_block.cryptographic_length is not None:
             self.logger.debug('crypto_length set on key block')

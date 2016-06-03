@@ -14,7 +14,6 @@
 # under the License.
 
 import logging
-import os
 import sys
 
 from six.moves import xrange
@@ -31,6 +30,8 @@ from kmip.services.kmip_client import KMIPProxy
 
 
 if __name__ == '__main__':
+    logger = utils.build_console_logger(logging.INFO)
+
     # Build and parse arguments
     parser = utils.build_cli_parser(Operation.QUERY)
     opts, args = parser.parse_args(sys.argv[1:])
@@ -38,12 +39,6 @@ if __name__ == '__main__':
     username = opts.username
     password = opts.password
     config = opts.config
-
-    # Build and setup logging and needed factories
-    f_log = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir,
-                         'logconfig.ini')
-    logging.config.fileConfig(f_log)
-    logger = logging.getLogger(__name__)
 
     # Build query function list.
     query_functions = list()
@@ -69,9 +64,9 @@ if __name__ == '__main__':
 
     # Display operation results
     logger.info('query() result status: {0}'.format(
-        result.result_status.enum))
+        result.result_status.value))
 
-    if result.result_status.enum == ResultStatus.SUCCESS:
+    if result.result_status.value == ResultStatus.SUCCESS:
         operations = result.operations
         object_types = result.object_types
         vendor_identification = result.vendor_identification
@@ -106,6 +101,6 @@ if __name__ == '__main__':
 
     else:
         logger.info('query() result reason: {0}'.format(
-            result.result_reason.enum))
+            result.result_reason.value))
         logger.info('query() result message: {0}'.format(
             result.result_message.value))

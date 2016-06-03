@@ -18,12 +18,22 @@ from testtools import TestCase
 from kmip.core.attributes import ApplicationData
 from kmip.core.attributes import ApplicationNamespace
 from kmip.core.attributes import CertificateType
+from kmip.core.attributes import CryptographicParameters
 from kmip.core.attributes import DigestValue
 from kmip.core.attributes import HashingAlgorithm
+from kmip.core.attributes import Name
 from kmip.core.attributes import OperationPolicyName
+from kmip.core.attributes import Tags
 
+from kmip.core.factories.attribute_values import AttributeValueFactory
+
+from kmip.core.enums import AttributeType
+from kmip.core.enums import BlockCipherMode
 from kmip.core.enums import CertificateTypeEnum
 from kmip.core.enums import HashingAlgorithm as HashingAlgorithmEnum
+from kmip.core.enums import KeyRoleType
+from kmip.core.enums import PaddingMethod
+from kmip.core.enums import NameType
 
 from kmip.core.utils import BytearrayStream
 
@@ -33,6 +43,8 @@ class TestNameValue(TestCase):
     def setUp(self):
         super(TestNameValue, self).setUp()
         self.stream = BytearrayStream()
+        self.stringName1 = 'Jenny'
+        self.stringName2 = 'Johnny'
 
     def tearDown(self):
         super(TestNameValue, self).tearDown()
@@ -49,27 +61,146 @@ class TestNameValue(TestCase):
     def test_read_with_padding(self):
         self.skip('Not implemented')
 
+    def test__eq(self):
+        name_val = Name.NameValue(self.stringName1)
+        same_name_val = Name.NameValue(self.stringName1)
+        other_name_val = Name.NameValue(self.stringName2)
+
+        self.assertTrue(name_val == same_name_val)
+        self.assertFalse(name_val == other_name_val)
+        self.assertFalse(name_val == 'invalid')
+
+    def test__str(self):
+        name_val = Name.NameValue(self.stringName1)
+        repr_name = "NameValue(value='{0}')".format(self.stringName1)
+
+        self.assertEqual(self.stringName1, str(name_val))
+        self.assertEqual(repr_name, repr(name_val))
+
+
+class TestNameType(TestCase):
+
+    def setUp(self):
+        super(TestNameType, self).setUp()
+        self.stream = BytearrayStream()
+        self.enum_uri = NameType.URI
+        self.enum_txt = NameType.UNINTERPRETED_TEXT_STRING
+
+    def tearDown(self):
+        super(TestNameType, self).tearDown()
+
+    def test_write_no_padding(self):
+        self.skip('Not implemented')
+
+    def test_write_with_padding(self):
+        self.skip('Not implemented')
+
+    def test_read_no_padding(self):
+        self.skip('Not implemented')
+
+    def test_read_with_padding(self):
+        self.skip('Not implemented')
+
+    def test__eq(self):
+        type_uri = Name.NameType(self.enum_uri)
+        same_type = Name.NameType(self.enum_uri)
+        type_txt = Name.NameType(self.enum_txt)
+
+        self.assertTrue(type_uri == same_type)
+        self.assertFalse(type_uri == type_txt)
+        self.assertFalse(type_uri == 'invalid')
+
+    def test__str(self):
+        type_uri = Name.NameType(self.enum_uri)
+        str_uri = "{0}".format(self.enum_uri)
+        repr_uri = "NameType(value=<{0}: {1}>)".format(
+                self.enum_uri,
+                self.enum_uri.value)
+
+        self.assertEqual(str_uri, str(type_uri))
+        self.assertEqual(repr_uri, repr(type_uri))
+
 
 class TestName(TestCase):
 
     def setUp(self):
         super(TestName, self).setUp()
         self.stream = BytearrayStream()
+        self.badFormatName = 8675309
+        self.stringName1 = 'Jenny'
+        self.stringName2 = 'Johnny'
+        self.enumNameType = NameType.UNINTERPRETED_TEXT_STRING
+        self.enumNameTypeUri = NameType.URI
 
     def tearDown(self):
         super(TestName, self).tearDown()
 
-    def test_minimum_write(self):
-        self.skip('Not implemented')
+    def test_bad_name_value_format(self):
+        """
+         Test that an error is raised in for an incorrectly formatted name
+         value
+        """
+        name_obj = Name()
+        name_obj.name_value = self.badFormatName
+        name_obj.name_type = self.enumNameType
 
-    def test_maximum_write(self):
-        self.skip('Not implemented')
+        self.assertRaises(TypeError, name_obj.validate)
 
-    def test_minimum_read(self):
-        self.skip('Not implemented')
+    def test_bad_name_type_format(self):
+        """
+         Test that an error is raised for an incorrectly formatted name type
+        """
+        name_obj = Name()
+        name_obj.name_value = self.stringName1
+        name_obj.name_type = self.badFormatName
 
-    def test_maximum_read(self):
-        self.skip('Not implemented')
+        self.assertRaises(TypeError, name_obj.validate)
+
+    def test_name_create_string_input(self):
+        """
+         Test the creation of object names with an enum value for the name type
+        """
+        name_obj = Name.create(self.stringName1, self.enumNameType)
+        self.assertIsInstance(name_obj.name_value, Name.NameValue)
+        self.assertEqual(self.stringName1, name_obj.name_value.value)
+
+    def test_name_create_bad_input(self):
+        """
+         Test the creation of object names with a bad value input
+        """
+        name_value = self.badFormatName
+        name_type = self.enumNameType
+
+        self.assertRaises(TypeError, Name.create, *(name_value, name_type))
+
+    def test_name_create_bad_type_input(self):
+        """
+         Test the creation of object names with a bad value input
+        """
+        self.assertRaises(TypeError, Name.create, *(self.stringName1,
+                                                    self.badFormatName))
+
+    def test__eq(self):
+        name_obj = Name.create(self.stringName1, self.enumNameType)
+        same_name = Name.create(self.stringName1, self.enumNameType)
+        other_name = Name.create(self.stringName2, self.enumNameType)
+        other_type = Name.create(self.stringName1, self.enumNameTypeUri)
+
+        self.assertTrue(name_obj == same_name)
+        self.assertFalse(name_obj == other_name)
+        self.assertFalse(name_obj == other_type)
+        self.assertFalse(name_obj == 'invalid')
+
+    def test__str(self):
+        name_obj = Name.create(self.stringName1, self.enumNameType)
+        repr_name = (
+                "Name(type=NameType(value="
+                "<NameType.UNINTERPRETED_TEXT_STRING: {0}>),"
+                "value=NameValue(value='{1}'))"
+                ).format(self.enumNameType.value, self.stringName1)
+
+        self.assertEqual(self.stringName1, str(name_obj))
+        self.assertEqual(repr_name, repr(name_obj))
 
 
 class TestOperationPolicyName(TestCase):
@@ -115,8 +246,8 @@ class TestHashingAlgorithm(TestCase):
             hashing_algorithm = HashingAlgorithm(value)
 
             msg = "expected {0}, observed {1}".format(
-                value, hashing_algorithm.enum)
-            self.assertEqual(value, hashing_algorithm.enum, msg)
+                value, hashing_algorithm.value)
+            self.assertEqual(value, hashing_algorithm.value, msg)
         else:
             self.assertRaises(TypeError, HashingAlgorithm, value)
 
@@ -166,8 +297,8 @@ class TestCertificateType(TestCase):
                 certificate_type = CertificateType(value)
 
             msg = "expected {0}, observed {1}".format(
-                value, certificate_type.enum)
-            self.assertEqual(value, certificate_type.enum, msg)
+                value, certificate_type.value)
+            self.assertEqual(value, certificate_type.value, msg)
         else:
             self.assertRaises(TypeError, CertificateType, value)
 
@@ -323,3 +454,119 @@ class TestApplicationData(TestCase):
         used to construct an ApplicationData object.
         """
         self._test_init(0)
+
+
+class TestCryptographicParameters(TestCase):
+    """
+    A test suite for the CryptographicParameters class
+    """
+
+    def setUp(self):
+        super(TestCryptographicParameters, self).setUp()
+
+        self.bad_enum_code = 8535937
+        self.factory = AttributeValueFactory()
+
+        self.cp = self.factory.create_attribute_value(
+            AttributeType.CRYPTOGRAPHIC_PARAMETERS,
+            {'block_cipher_mode': BlockCipherMode.CBC,
+             'padding_method': PaddingMethod.PKCS5,
+             'hashing_algorithm': HashingAlgorithmEnum.SHA_1,
+             'key_role_type': KeyRoleType.BDK})
+
+        self.cp_none = self.factory.create_attribute_value(
+            AttributeType.CRYPTOGRAPHIC_PARAMETERS, {})
+
+        # Symmetric key object with Cryptographic Parameters
+        # Byte stream edited to add Key Role Type parameter
+        # Based on the KMIP Spec 1.1 Test Cases document
+        # 11.1 page 255 on the pdf version
+        self.key_req_with_crypt_params = BytearrayStream((
+            b'\x42\x00\x2B\x01\x00\x00\x00\x40'
+            b'\x42\x00\x11\x05\x00\x00\x00\x04\x00\x00\x00\x01\x00\x00\x00\x00'
+            b'\x42\x00\x5F\x05\x00\x00\x00\x04\x00\x00\x00\x03\x00\x00\x00\x00'
+            b'\x42\x00\x38\x05\x00\x00\x00\x04\x00\x00\x00\x04\x00\x00\x00\x00'
+            b'\x42\x00\x83\x05\x00\x00\x00\x04\x00\x00\x00\x01\x00\x00\x00\x00'
+        ))
+
+    def teardown(self):
+        super(TestDigestValue, self).tearDown()
+
+    def test_write_crypto_params(self):
+        ostream = BytearrayStream()
+        self.cp.write(ostream)
+        self.assertEqual(self.key_req_with_crypt_params, ostream)
+
+    def test_read_crypto_params(self):
+        CryptographicParameters.read(self.cp, self.key_req_with_crypt_params)
+
+        self.assertEqual(Tags.BLOCK_CIPHER_MODE.value,
+                         self.cp.block_cipher_mode.tag.value)
+        self.assertEqual(BlockCipherMode.CBC.value,
+                         self.cp.block_cipher_mode.value.value)
+
+        self.assertEqual(Tags.PADDING_METHOD.value,
+                         self.cp.padding_method.tag.value)
+        self.assertEqual(PaddingMethod.PKCS5.value,
+                         self.cp.padding_method.value.value)
+
+        self.assertEqual(Tags.KEY_ROLE_TYPE.value,
+                         self.cp.key_role_type.tag.value)
+        self.assertEqual(KeyRoleType.BDK.value,
+                         self.cp.key_role_type.value.value)
+
+        self.assertEqual(Tags.HASHING_ALGORITHM.value,
+                         self.cp.hashing_algorithm.tag.value)
+        self.assertEqual(HashingAlgorithmEnum.SHA_1.value,
+                         self.cp.hashing_algorithm.value.value)
+
+    def test_bad_cipher_mode(self):
+        self.cp.block_cipher_mode = self.bad_enum_code
+        cp_valid = self.factory.create_attribute_value(
+            AttributeType.CRYPTOGRAPHIC_PARAMETERS,
+            {'block_cipher_mode': BlockCipherMode.CBC,
+             'padding_method': PaddingMethod.PKCS5,
+             'hashing_algorithm': HashingAlgorithmEnum.SHA_1,
+             'key_role_type': KeyRoleType.BDK})
+        self.assertFalse(self.cp == cp_valid)
+        self.assertRaises(TypeError, self.cp.validate)
+
+    def test_bad_padding_method(self):
+        self.cp.padding_method = self.bad_enum_code
+        cp_valid = self.factory.create_attribute_value(
+            AttributeType.CRYPTOGRAPHIC_PARAMETERS,
+            {'block_cipher_mode': BlockCipherMode.CBC,
+             'padding_method': PaddingMethod.PKCS5,
+             'hashing_algorithm': HashingAlgorithmEnum.SHA_1,
+             'key_role_type': KeyRoleType.BDK})
+        self.assertFalse(self.cp == cp_valid)
+        self.assertRaises(TypeError, self.cp.validate)
+
+    def test_bad_hash_algorithm(self):
+        self.cp.hashing_algorithm = self.bad_enum_code
+        cp_valid = self.factory.create_attribute_value(
+            AttributeType.CRYPTOGRAPHIC_PARAMETERS,
+            {'block_cipher_mode': BlockCipherMode.CBC,
+             'padding_method': PaddingMethod.PKCS5,
+             'hashing_algorithm': HashingAlgorithmEnum.SHA_1,
+             'key_role_type': KeyRoleType.BDK})
+        self.assertFalse(self.cp == cp_valid)
+        self.assertRaises(TypeError, self.cp.validate)
+
+    def test_bad_key_role_type(self):
+        self.cp.key_role_type = self.bad_enum_code
+        cp_valid = self.factory.create_attribute_value(
+            AttributeType.CRYPTOGRAPHIC_PARAMETERS,
+            {'block_cipher_mode': BlockCipherMode.CBC,
+             'padding_method': PaddingMethod.PKCS5,
+             'hashing_algorithm': HashingAlgorithmEnum.SHA_1,
+             'key_role_type': KeyRoleType.BDK})
+        self.assertFalse(self.cp == cp_valid)
+        self.assertRaises(TypeError, self.cp.validate)
+
+    def test_bad_object(self):
+        name_value = 'puppies'
+        name_type = NameType.UNINTERPRETED_TEXT_STRING
+        bad_obj = Name.create(name_value, name_type)
+
+        self.assertNotEqual(NotImplemented, bad_obj)

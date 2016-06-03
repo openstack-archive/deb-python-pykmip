@@ -63,12 +63,43 @@ class Name(Struct):
         def __init__(self, value=None):
             super(Name.NameValue, self).__init__(value, Tags.NAME_VALUE)
 
+        def __eq__(self, other):
+            if isinstance(other, Name.NameValue):
+                if self.value == other.value:
+                    return True
+                else:
+                    return False
+            else:
+                return NotImplemented
+
+        def __repr__(self):
+            return "{0}(value={1})".format(
+                    type(self).__name__, repr(self.value))
+
+        def __str__(self):
+            return "{0}".format(self.value)
+
     class NameType(Enumeration):
 
-        ENUM_TYPE = enums.NameType
-
         def __init__(self, value=None):
-            super(Name.NameType, self).__init__(value, Tags.NAME_TYPE)
+            super(Name.NameType, self).__init__(
+                enums.NameType, value, Tags.NAME_TYPE)
+
+        def __eq__(self, other):
+            if isinstance(other, Name.NameType):
+                if self.value == other.value:
+                    return True
+                else:
+                    return False
+            else:
+                return NotImplemented
+
+        def __repr__(self):
+            return "{0}(value={1})".format(
+                    type(self).__name__, repr(self.value))
+
+        def __str__(self):
+            return "{0}".format(self.value)
 
     def __init__(self, name_value=None, name_type=None):
         super(Name, self).__init__(tag=Tags.NAME)
@@ -150,24 +181,40 @@ class Name(Struct):
         return Name(name_value=value,
                     name_type=n_type)
 
+    def __repr__(self):
+        return "{0}(type={1},value={2})".format(
+                type(self).__name__,
+                repr(self.name_type),
+                repr(self.name_value))
+
+    def __str__(self):
+        return "{0}".format(self.name_value.value)
+
+    def __eq__(self, other):
+        if isinstance(other, Name):
+            if self.name_value == other.name_value and \
+                        self.name_type == other.name_type:
+                return True
+            else:
+                return False
+        else:
+            return NotImplemented
+
 
 # 3.3
 class ObjectType(Enumeration):
 
-    ENUM_TYPE = enums.ObjectType
-
     def __init__(self, value=None):
-        super(ObjectType, self).__init__(value, Tags.OBJECT_TYPE)
+        super(ObjectType, self).__init__(
+            enums.ObjectType, value, Tags.OBJECT_TYPE)
 
 
 # 3.4
 class CryptographicAlgorithm(Enumeration):
 
-    ENUM_TYPE = enums.CryptographicAlgorithm
-
     def __init__(self, value=None):
         super(CryptographicAlgorithm, self).__init__(
-            value, Tags.CRYPTOGRAPHIC_ALGORITHM)
+            enums.CryptographicAlgorithm, value, Tags.CRYPTOGRAPHIC_ALGORITHM)
 
 
 # 3.5
@@ -187,7 +234,6 @@ class HashingAlgorithm(Enumeration):
     Object. See Sections 3.17 and 9.1.3.2.16 of the KMIP v1.1 specification
     for more information.
     """
-    ENUM_TYPE = enums.HashingAlgorithm
 
     def __init__(self, value=HashingAlgorithmEnum.SHA_256):
         """
@@ -198,31 +244,28 @@ class HashingAlgorithm(Enumeration):
                 (e.g., HashingAlgorithm.MD5). Optional, defaults to
                 HashingAlgorithm.SHA_256.
         """
-        super(HashingAlgorithm, self).__init__(value, Tags.HASHING_ALGORITHM)
+        super(HashingAlgorithm, self).__init__(
+            enums.HashingAlgorithm, value, Tags.HASHING_ALGORITHM)
 
 
 class CryptographicParameters(Struct):
 
     class BlockCipherMode(Enumeration):
-        ENUM_TYPE = enums.BlockCipherMode
 
         def __init__(self, value=None):
             super(CryptographicParameters.BlockCipherMode, self).__init__(
-                value, Tags.BLOCK_CIPHER_MODE)
+                enums.BlockCipherMode, value, Tags.BLOCK_CIPHER_MODE)
 
     class PaddingMethod(Enumeration):
-        ENUM_TYPE = enums.PaddingMethod
-
         def __init__(self, value=None):
             super(CryptographicParameters.PaddingMethod, self).__init__(
-                value, Tags.PADDING_METHOD)
+                enums.PaddingMethod, value, Tags.PADDING_METHOD)
 
     class KeyRoleType(Enumeration):
-        ENUM_TYPE = enums.KeyRoleType
 
         def __init__(self, value=None):
             super(CryptographicParameters.KeyRoleType, self).__init__(
-                value, Tags.KEY_ROLE_TYPE)
+                enums.KeyRoleType, value, Tags.KEY_ROLE_TYPE)
 
     def __init__(self,
                  block_cipher_mode=None,
@@ -281,8 +324,49 @@ class CryptographicParameters(Struct):
         self.__validate()
 
     def __validate(self):
-        # TODO (peter-hamilton) Finish implementation.
-        pass
+        if self.block_cipher_mode is not None:
+            if not isinstance(self.block_cipher_mode, self.BlockCipherMode):
+                msg = "Invalid block cipher mode"
+                msg += "; expected {0}, received {1}".format(
+                    self.BlockCipherMode, self.block_cipher_mode)
+                raise TypeError(msg)
+        if self.padding_method is not None:
+            if not isinstance(self.padding_method, self.PaddingMethod):
+                msg = "Invalid padding method"
+                msg += "; expected {0}, received {1}".format(
+                    self.PaddingMethod, self.padding_method)
+                raise TypeError(msg)
+        if self.hashing_algorithm is not None:
+            if not isinstance(self.hashing_algorithm, HashingAlgorithm):
+                msg = "Invalid hashing algorithm"
+                msg += "; expected {0}, received {1}".format(
+                    HashingAlgorithm, self.hashing_algorithm)
+                raise TypeError(msg)
+        if self.key_role_type is not None:
+            if not isinstance(self.key_role_type, self.KeyRoleType):
+                msg = "Invalid key role type"
+                msg += "; expected {0}, received {1}".format(
+                    self.KeyRoleType, self.key_role_type)
+                raise TypeError(msg)
+
+    def __eq__(self, other):
+        if isinstance(other, CryptographicParameters):
+            if self.block_cipher_mode != other.block_cipher_mode:
+                return False
+            elif self.key_role_type != other.key_role_type:
+                return False
+            elif self.hashing_algorithm != other.hashing_algorithm:
+                return False
+            elif self.padding_method != other.padding_method:
+                return False
+            else:
+                return True
+
+    def __ne__(self, other):
+        if isinstance(other, CryptographicParameters):
+            return not self == other
+        else:
+            return NotImplemented
 
 
 class CertificateType(Enumeration):
@@ -293,7 +377,6 @@ class CertificateType(Enumeration):
     Object. See Sections 2.2.1 and 3.8 of the KMIP v1.1 specification for more
     information.
     """
-    ENUM_TYPE = enums.CertificateTypeEnum
 
     def __init__(self, value=CertificateTypeEnum.X_509):
         """
@@ -304,7 +387,8 @@ class CertificateType(Enumeration):
                 value, (e.g., CertificateTypeEnum.PGP). Optional, defaults to
                 CertificateTypeEnum.X_509.
         """
-        super(CertificateType, self).__init__(value, Tags.CERTIFICATE_TYPE)
+        super(CertificateType, self).__init__(
+            enums.CertificateTypeEnum, value, Tags.CERTIFICATE_TYPE)
 
 
 class DigestValue(ByteString):

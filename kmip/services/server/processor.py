@@ -33,6 +33,8 @@ from kmip.core.messages.payloads.get import GetResponsePayload
 from kmip.core.messages.payloads.destroy import DestroyResponsePayload
 from kmip.core.messages.payloads.register import RegisterResponsePayload
 from kmip.core.messages.payloads.locate import LocateResponsePayload
+from kmip.core.messages.payloads.discover_versions import \
+    DiscoverVersionsResponsePayload
 
 from kmip.core.enums import Operation
 from kmip.core.enums import ResultStatus as RS
@@ -109,16 +111,16 @@ class Processor(object):
             response_payload = None
             message_extension = None
 
-            if result_status.enum is RS.SUCCESS:
+            if result_status.value is RS.SUCCESS:
                 response_payload = result[3]
-            elif result_status.enum is RS.OPERATION_FAILED:
+            elif result_status.value is RS.OPERATION_FAILED:
                 failure_occurred = True
                 result_reason = result[1]
-            elif result_status.enum is RS.OPERATION_PENDING:
+            elif result_status.value is RS.OPERATION_PENDING:
                 # TODO (peter-hamilton) Need to add a way to track async
                 # TODO (peter-hamilton) operations.
                 asyn_cv = b'\x00'
-            elif result_status.enum is RS.OPERATION_UNDONE:
+            elif result_status.value is RS.OPERATION_UNDONE:
                 result_reason = result[1]
             else:
                 msg = 'Unrecognized operation result status: {0}'
@@ -135,13 +137,13 @@ class Processor(object):
             response_batch_items.append(resp_bi)
 
             if failure_occurred:
-                if batch_error_cont_option.enum is BECO.STOP:
+                if batch_error_cont_option.value is BECO.STOP:
                     break
-                elif batch_error_cont_option.enum is BECO.UNDO:
+                elif batch_error_cont_option.value is BECO.UNDO:
                     # TODO (peter-hamilton) Tell client to undo operations.
                     # TODO (peter-hamilton) Unclear what response should be.
                     break
-                elif batch_error_cont_option.enum is BECO.CONTINUE:
+                elif batch_error_cont_option.value is BECO.CONTINUE:
                     continue
                 else:
                     msg = 'Unrecognized batch error continuation option: {0}'
@@ -161,7 +163,7 @@ class Processor(object):
         raise NotImplementedError()
 
     def _process_operation(self, operation, payload):
-        op = operation.enum
+        op = operation.value
 
         if op is Operation.CREATE:
             return self._process_create_request(payload)
@@ -173,7 +175,10 @@ class Processor(object):
             return self._process_register_request(payload)
         elif op is Operation.LOCATE:
             return self._process_locate_request(payload)
+        elif op is Operation.DISCOVER_VERSIONS:
+            return self._process_discover_versions_request(payload)
         else:
+            self.logger.debug("Process operation: Not implemented")
             raise NotImplementedError()
 
     def _process_create_request(self, payload):
@@ -260,7 +265,7 @@ class Processor(object):
 
     def _process_locate_request(self, payload):
         max_items = payload.maximum_items
-        storage_mask = payload.status_storage_mask
+        storage_mask = payload.storage_status_mask
         objgrp_member = payload.object_group_member
         attributes = payload.attributes
 
@@ -274,5 +279,21 @@ class Processor(object):
         uuids = result.uuids
 
         resp_pl = LocateResponsePayload(unique_identifiers=uuids)
+
+        return (result_status, result_reason, result_message, resp_pl)
+
+    def _process_discover_versions_request(self, payload):
+        protocol_versions = payload.protocol_versions
+
+        result = self._handler.discover_versions(
+                protocol_versions=protocol_versions)
+
+        result_status = result.result_status
+        result_reason = result.result_reason
+        result_protocol_versions = result.protocol_versions
+        result_message = result.result_message
+
+        resp_pl = DiscoverVersionsResponsePayload(
+                protocol_versions=result_protocol_versions)
 
         return (result_status, result_reason, result_message, resp_pl)

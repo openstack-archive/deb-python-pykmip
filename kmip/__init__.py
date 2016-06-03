@@ -13,51 +13,26 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import logging.config
 import os
+import re
 import sys
+import warnings
 
 # Dynamically set __version__
 version_path = os.path.join(os.path.dirname(
     os.path.realpath(__file__)), 'version.py')
 with open(version_path, 'r') as version_file:
-    exec(version_file.read())
+    mo = re.search(r"^.*= '(\d\.\d\.\d)'$", version_file.read(), re.MULTILINE)
+    __version__ = mo.group(1)
 
-path = os.path.join(os.path.dirname(__file__), 'logconfig.ini')
-
-if os.path.exists(path):
-    logging.config.fileConfig(path)
-else:
-    minor_version = sys.version_info[1]
-
-    if minor_version == 7:
-        config = {
-            'version': 1,
-            'disable_existing_loggers': False,
-            'formatters': {
-                'simpleFormatter': {
-                    'format':
-                        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-                }
-            },
-            'handlers': {
-                'consoleHandler': {
-                    'level': 'INFO',
-                    'class': 'logging.StreamHandler',
-                    'formatter': 'simpleFormatter',
-                    'stream': sys.stdout
-                }
-            },
-            'loggers': {
-                'root': {
-                    'level': 'INFO',
-                    'handlers': ['consoleHandler']
-                }
-            }
-        }
-
-        logging.config.dictConfig(config)
-    else:
-        logging.basicConfig()
 
 __all__ = ['core', 'demos', 'services']
+
+
+if sys.version_info[:2] == (2, 6):
+    warnings.simplefilter("always")
+    warnings.warn(
+        ("Please use a newer version of Python (2.7.9+ preferred). PyKMIP "
+         "support for Python 2.6 will be deprecated in the future."),
+        PendingDeprecationWarning)
+    warnings.simplefilter("default")

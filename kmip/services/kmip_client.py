@@ -19,7 +19,9 @@ from kmip.services.results import CreateKeyPairResult
 from kmip.services.results import DestroyResult
 from kmip.services.results import DiscoverVersionsResult
 from kmip.services.results import GetResult
+from kmip.services.results import GetAttributeListResult
 from kmip.services.results import LocateResult
+from kmip.services.results import OperationResult
 from kmip.services.results import QueryResult
 from kmip.services.results import RegisterResult
 from kmip.services.results import RekeyKeyPairResult
@@ -50,13 +52,14 @@ from kmip.core.messages.payloads import create_key_pair
 from kmip.core.messages.payloads import destroy
 from kmip.core.messages.payloads import discover_versions
 from kmip.core.messages.payloads import get
+from kmip.core.messages.payloads import get_attribute_list
 from kmip.core.messages.payloads import locate
 from kmip.core.messages.payloads import query
 from kmip.core.messages.payloads import rekey_key_pair
 from kmip.core.messages.payloads import register
 from kmip.core.messages.payloads import revoke
 
-from kmip.services.kmip_protocol import KMIPProtocol
+from kmip.services.server.kmip_protocol import KMIPProtocol
 
 from kmip.core.config_helper import ConfigHelper
 
@@ -74,7 +77,8 @@ CONFIG_FILE = os.path.normpath(os.path.join(FILE_PATH, '../kmipconfig.ini'))
 
 class KMIPProxy(KMIP):
 
-    def __init__(self, host=None, port=None, keyfile=None, certfile=None,
+    def __init__(self, host=None, port=None, keyfile=None,
+                 certfile=None,
                  cert_reqs=None, ssl_version=None, ca_certs=None,
                  do_handshake_on_connect=None,
                  suppress_ragged_eofs=None,
@@ -191,7 +195,6 @@ class KMIPProxy(KMIP):
                 self.is_authentication_suite_supported(authentication_suite))
 
     def open(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         self.logger.debug("KMIPProxy keyfile: {0}".format(self.keyfile))
         self.logger.debug("KMIPProxy certfile: {0}".format(self.certfile))
@@ -207,6 +210,24 @@ class KMIPProxy(KMIP):
         self.logger.debug("KMIPProxy suppress_ragged_eofs: {0}".format(
             self.suppress_ragged_eofs))
 
+        for host in self.host_list:
+            self.host = host
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._create_socket(sock)
+            self.protocol = KMIPProtocol(self.socket)
+            try:
+                self.socket.connect((self.host, self.port))
+            except Exception as e:
+                self.logger.error("An error occurred while connecting to "
+                                  "appliance " + self.host)
+                self.socket.close()
+            else:
+                return
+
+        self.socket = None
+        raise e
+
+    def _create_socket(self, sock):
         self.socket = ssl.wrap_socket(
             sock,
             keyfile=self.keyfile,
@@ -216,15 +237,7 @@ class KMIPProxy(KMIP):
             ca_certs=self.ca_certs,
             do_handshake_on_connect=self.do_handshake_on_connect,
             suppress_ragged_eofs=self.suppress_ragged_eofs)
-        self.protocol = KMIPProtocol(self.socket)
-
         self.socket.settimeout(self.timeout)
-
-        try:
-            self.socket.connect((self.host, self.port))
-        except socket.timeout as e:
-            self.logger.error("timeout occurred while connecting to appliance")
-            raise e
 
     def __del__(self):
         # Close the socket properly, helpful in case close() is not called.
@@ -279,6 +292,25 @@ class KMIPProxy(KMIP):
             key_compression_type=key_compression_type,
             key_wrapping_specification=key_wrapping_specification,
             credential=credential)
+
+    def get_attribute_list(self, uid=None):
+        """
+        Send a GetAttributeList request to the server.
+
+        Args:
+            uid (string): The ID of the managed object with which the retrieved
+                attribute names should be associated.
+
+        Returns:
+            result (GetAttributeListResult): A structure containing the results
+                of the operation.
+        """
+        batch_item = self._build_get_attribute_list_batch_item(uid)
+
+        request = self._build_request_message(None, [batch_item])
+        response = self._send_and_receive_message(request)
+        results = self._process_batch_items(response)
+        return results[0]
 
     def revoke(self, uuid, reason, message=None, credential=None):
         return self._revoke(unique_identifier=uuid,
@@ -434,6 +466,13 @@ class KMIPProxy(KMIP):
             operation=operation, request_payload=payload)
         return batch_item
 
+    def _build_get_attribute_list_batch_item(self, uid=None):
+        operation = Operation(OperationEnum.GET_ATTRIBUTE_LIST)
+        payload = get_attribute_list.GetAttributeListRequestPayload(uid)
+        batch_item = messages.RequestBatchItem(
+            operation=operation, request_payload=payload)
+        return batch_item
+
     def _build_discover_versions_batch_item(self, protocol_versions=None):
         operation = Operation(OperationEnum.DISCOVER_VERSIONS)
 
@@ -447,15 +486,21 @@ class KMIPProxy(KMIP):
     def _process_batch_items(self, response):
         results = []
         for batch_item in response.batch_items:
-            operation = batch_item.operation.enum
+            operation = None
+            if batch_item.operation is not None:
+                operation = batch_item.operation.value
             processor = self._get_batch_item_processor(operation)
             result = processor(batch_item)
             results.append(result)
         return results
 
     def _get_batch_item_processor(self, operation):
-        if operation == OperationEnum.CREATE_KEY_PAIR:
+        if operation is None:
+            return self._process_response_error
+        elif operation == OperationEnum.CREATE_KEY_PAIR:
             return self._process_create_key_pair_batch_item
+        elif operation == OperationEnum.GET_ATTRIBUTE_LIST:
+            return self._process_get_attribute_list_batch_item
         elif operation == OperationEnum.REKEY_KEY_PAIR:
             return self._process_rekey_key_pair_batch_item
         elif operation == OperationEnum.QUERY:
@@ -465,6 +510,23 @@ class KMIPProxy(KMIP):
         else:
             raise ValueError("no processor for operation: {0}".format(
                 operation))
+
+    def _process_get_attribute_list_batch_item(self, batch_item):
+        payload = batch_item.response_payload
+
+        uid = None
+        names = None
+
+        if payload:
+            uid = payload.uid
+            names = payload.attribute_names
+
+        return GetAttributeListResult(
+            batch_item.result_status,
+            batch_item.result_reason,
+            batch_item.result_message,
+            uid,
+            names)
 
     def _process_key_pair_batch_item(self, batch_item, result):
         payload = batch_item.response_payload
@@ -534,6 +596,12 @@ class KMIPProxy(KMIP):
 
         return result
 
+    def _process_response_error(self, batch_item):
+        result = OperationResult(
+            batch_item.result_status, batch_item.result_reason,
+            batch_item.result_message)
+        return result
+
     def _get(self,
              unique_identifier=None,
              key_format_type=None,
@@ -550,7 +618,7 @@ class KMIPProxy(KMIP):
         if unique_identifier is not None:
             uuid = attr.UniqueIdentifier(unique_identifier)
         if key_format_type is not None:
-            kft = get.GetRequestPayload.KeyFormatType(key_format_type.enum)
+            kft = get.GetRequestPayload.KeyFormatType(key_format_type.value)
         if key_compression_type is not None:
             kct = key_compression_type
             kct = get.GetRequestPayload.KeyCompressionType(kct)
@@ -834,8 +902,13 @@ class KMIPProxy(KMIP):
                        username, password, timeout):
         conf = ConfigHelper()
 
-        self.host = conf.get_valid_value(
+        # TODO: set this to a host list
+        self.host_list_str = conf.get_valid_value(
             host, self.config, 'host', conf.DEFAULT_HOST)
+
+        self.host_list = self._build_host_list(self.host_list_str)
+
+        self.host = self.host_list[0]
 
         self.port = int(conf.get_valid_value(
             port, self.config, 'port', conf.DEFAULT_PORT))
@@ -875,11 +948,27 @@ class KMIPProxy(KMIP):
         self.password = conf.get_valid_value(
             password, self.config, 'password', conf.DEFAULT_PASSWORD)
 
-        self.timeout = conf.get_valid_value(
-            timeout, self.config, 'timeout', conf.DEFAULT_TIMEOUT)
+        self.timeout = int(conf.get_valid_value(
+            timeout, self.config, 'timeout', conf.DEFAULT_TIMEOUT))
         if self.timeout < 0:
             self.logger.warning(
                 "Negative timeout value specified, "
                 "resetting to safe default of {0} seconds".format(
                     conf.DEFAULT_TIMEOUT))
             self.timeout = conf.DEFAULT_TIMEOUT
+
+    def _build_host_list(self, host_list_str):
+        '''
+        This internal function takes the host string from the config file
+        and turns it into a list
+        :return: LIST host list
+        '''
+
+        host_list = []
+        if isinstance(host_list_str, str):
+            host_list = host_list_str.replace(' ', '').split(',')
+        else:
+            raise TypeError("Unrecognized variable type provided for host "
+                            "list string. 'String' type expected but '" +
+                            str(type(host_list_str)) + "' received")
+        return host_list

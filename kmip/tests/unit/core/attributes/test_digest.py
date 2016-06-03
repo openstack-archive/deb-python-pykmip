@@ -40,6 +40,8 @@ class TestDigest(TestCase):
             HashingAlgorithmEnum.SHA_256)
         self.hashing_algorithm_c = HashingAlgorithm(
             HashingAlgorithmEnum.SHA_256)
+        self.hashing_algorithm_d = HashingAlgorithm(
+            HashingAlgorithmEnum.SHA_1)
 
         self.digest_value_a = DigestValue(b'')
         self.digest_value_b = DigestValue(
@@ -316,9 +318,17 @@ class TestDigest(TestCase):
             digest_value=self.digest_value_b,
             key_format_type=self.key_format_type_b)
         b = Digest()
+        c = Digest(
+            hashing_algorithm=self.hashing_algorithm_d,
+            digest_value=self.digest_value_b,
+            key_format_type=self.key_format_type_c)
+        d = Digest(
+            key_format_type=self.key_format_type_c)
 
         self.assertTrue(a != b)
         self.assertTrue(b != a)
+        self.assertTrue(b != c)
+        self.assertTrue(b != d)
 
     def test_not_equal_on_type_mismatch(self):
         """
@@ -337,42 +347,26 @@ class TestDigest(TestCase):
     def test_repr(self):
         """
         Test that the representation of a Digest object with data is formatted
-        properly and can be used by eval to create a new Digest object
-        identical to the original.
+        properly.
         """
+        hashing_algorithm = HashingAlgorithm(HashingAlgorithmEnum.MD5)
+        digest_value = DigestValue(b'\x00\x01\x02\x03')
+        key_format_type = KeyFormatType(KeyFormatTypeEnum.RAW)
         digest = Digest(
-            hashing_algorithm=HashingAlgorithm(HashingAlgorithmEnum.MD5),
-            digest_value=DigestValue(b'\x00\x01\x02\x03'),
-            key_format_type=KeyFormatType(KeyFormatTypeEnum.RAW))
-        byte_value = b'\x00\x01\x02\x03'
+            hashing_algorithm=hashing_algorithm,
+            digest_value=digest_value,
+            key_format_type=key_format_type)
 
-        expected = "Digest("
-        expected += "hashing_algorithm=HashingAlgorithm("
-        expected += "value=HashingAlgorithm.MD5), "
-        expected += "digest_value=DigestValue("
-        expected += "value={0}), ".format(repr(byte_value))
-        expected += "key_format_type=KeyFormatType("
-        expected += "value=KeyFormatType.RAW))"
+        hashing_algorithm = "hashing_algorithm={0}".format(
+            repr(hashing_algorithm))
+        digest_value = "digest_value={0}".format(repr(digest_value))
+        key_format_type = "key_format_type={0}".format(repr(key_format_type))
+
+        expected = "Digest({0}, {1}, {2})".format(
+            hashing_algorithm, digest_value, key_format_type)
         observed = repr(digest)
 
-        msg = "expected {0}, observed {1}".format(expected, observed)
-        self.assertEqual(expected, observed, msg)
-
-        # Instead of using eval(repr(digest)), we need to use a manual string,
-        # eval(manual), due to the name collisions of the HashingAlgorithm
-        # and KeyFormatType objects and enumerations.
-        manual = "Digest("
-        manual += "hashing_algorithm=HashingAlgorithm("
-        manual += "value=HashingAlgorithmEnum.MD5), "
-        manual += "digest_value=DigestValue("
-        manual += "value={0}), ".format(repr(byte_value))
-        manual += "key_format_type=KeyFormatType("
-        manual += "value=KeyFormatTypeEnum.RAW))"
-
-        expected = digest
-        observed = eval(manual)
-
-        msg = "expected {0}, observed {1}".format(expected, observed)
+        msg = "expected:\n{0},\nobserved:\n{1}".format(expected, observed)
         self.assertEqual(expected, observed, msg)
 
     def _test_str(self, value, expected):

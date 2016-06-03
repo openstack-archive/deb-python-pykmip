@@ -17,12 +17,13 @@ import logging
 import os
 import socket
 import ssl
+import warnings
 
 from kmip.core.config_helper import ConfigHelper
 from kmip.core.server import KMIPImpl
 
-from kmip.services.kmip_protocol import KMIPProtocolFactory
-from kmip.services.processor import Processor
+from kmip.services.server.kmip_protocol import KMIPProtocolFactory
+from kmip.services.server.processor import Processor
 
 FILE_PATH = os.path.dirname(os.path.abspath(__file__))
 
@@ -32,6 +33,14 @@ class KMIPServer(object):
     def __init__(self, host=None, port=None, keyfile=None, certfile=None,
                  cert_reqs=None, ssl_version=None, ca_certs=None,
                  do_handshake_on_connect=None, suppress_ragged_eofs=None):
+        warnings.simplefilter("always")
+        warnings.warn((
+            "Please use the newer KmipServer located in kmip.services.server. "
+            "This version of the server will be deprecated in the future."),
+            PendingDeprecationWarning
+        )
+        warnings.simplefilter("default")
+
         self.logger = logging.getLogger(__name__)
 
         self._set_variables(host, port, keyfile, certfile, cert_reqs,
@@ -53,6 +62,7 @@ class KMIPServer(object):
         self.socket.listen(0)
         while True:
             connection, address = self.socket.accept()
+            self.logger.info("Connected by {0}".format(address))
             connection = ssl.wrap_socket(
                 connection,
                 keyfile=self.keyfile,
@@ -70,9 +80,13 @@ class KMIPServer(object):
             try:
                 while True:
                     self._processor.process(protocol, protocol)
+            except EOFError as e:
+                self.logger.warning("KMIPServer {0} {1}".format(type(e), e))
             except Exception as e:
                 self.logger.error('KMIPServer {0} {1}'.format(type(e), e))
+            finally:
                 connection.close()
+                self.logger.info('Connection closed')
 
     def _set_variables(self, host, port, keyfile, certfile, cert_reqs,
                        ssl_version, ca_certs, do_handshake_on_connect,

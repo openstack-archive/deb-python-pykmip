@@ -13,17 +13,19 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from abc import ABCMeta
 from abc import abstractmethod
+from sqlalchemy import Column, event, ForeignKey, Integer, String, VARBINARY
+from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.orm import relationship
 
 import binascii
 import six
 
 from kmip.core import enums
+from kmip.pie import sqltypes as sql
 
 
-@six.add_metaclass(ABCMeta)
-class ManagedObject:
+class ManagedObject(sql.Base):
     """
     The abstract base class of the simplified KMIP object hierarchy.
 
@@ -41,6 +43,24 @@ class ManagedObject:
         object_type: An enumeration associated with the type of ManagedObject.
     """
 
+    __tablename__ = 'managed_objects'
+    unique_identifier = Column('uid', Integer, primary_key=True)
+    _object_type = Column('object_type', sql.EnumType(enums.ObjectType))
+    _class_type = Column('class_type', String(50))
+    value = Column('value', VARBINARY(1024))
+    name_index = Column(Integer, default=0)
+    _names = relationship('ManagedObjectName', back_populates='mo',
+                          cascade='all, delete-orphan')
+    names = association_proxy('_names', 'name')
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'ManagedObject',
+        'polymorphic_on': _class_type
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
+
     @abstractmethod
     def __init__(self):
         """
@@ -49,6 +69,7 @@ class ManagedObject:
         self.value = None
 
         self.unique_identifier = None
+        self.name_index = 0
         self.names = list()
         self._object_type = None
 
@@ -125,6 +146,19 @@ class CryptographicObject(ManagedObject):
             describing how the CryptographicObject will be used.
     """
 
+    __tablename__ = 'crypto_objects'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('managed_objects.uid'),
+                               primary_key=True)
+    cryptographic_usage_masks = Column('cryptographic_usage_mask',
+                                       sql.UsageMaskType)
+    __mapper_args__ = {
+        'polymorphic_identity': 'CryptographicObject'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
+
     @abstractmethod
     def __init__(self):
         """
@@ -171,6 +205,23 @@ class Key(CryptographicObject):
             the key value.
     """
 
+    __tablename__ = 'keys'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('crypto_objects.uid'),
+                               primary_key=True)
+    cryptographic_algorithm = Column(
+        'cryptographic_algorithm', sql.EnumType(enums.CryptographicAlgorithm))
+    cryptographic_length = Column('cryptographic_length', Integer)
+    key_format_type = Column(
+        'key_format_type', sql.EnumType(enums.KeyFormatType))
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'Key'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
+
     @abstractmethod
     def __init__(self):
         """
@@ -209,6 +260,18 @@ class SymmetricKey(Key):
         names: The string names of the SymmetricKey.
     """
 
+    __tablename__ = 'symmetric_keys'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('keys.uid'),
+                               primary_key=True)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'SymmetricKey'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
+
     def __init__(self, algorithm, length, value, masks=None,
                  name='Symmetric Key'):
         """
@@ -235,9 +298,7 @@ class SymmetricKey(Key):
         self.names = [name]
 
         if masks:
-            self.cryptographic_usage_masks = masks
-        else:
-            self.cryptographic_usage_masks = list()
+            self.cryptographic_usage_masks.extend(masks)
 
         # All remaining attributes are not considered part of the public API
         # and are subject to change.
@@ -265,8 +326,6 @@ class SymmetricKey(Key):
                             "enumeration")
         elif not isinstance(self.cryptographic_length, six.integer_types):
             raise TypeError("key length must be an integer")
-        elif not isinstance(self.cryptographic_usage_masks, list):
-            raise TypeError("key usage masks must be a list")
 
         mask_count = len(self.cryptographic_usage_masks)
         for i in range(mask_count):
@@ -320,6 +379,10 @@ class SymmetricKey(Key):
             return NotImplemented
 
 
+event.listen(SymmetricKey._names, 'append',
+             sql.attribute_append_factory("name_index"), retval=False)
+
+
 class PublicKey(Key):
     """
     The PublicKey class of the simplified KMIP object hierarchy.
@@ -337,6 +400,18 @@ class PublicKey(Key):
             application.
         names: The list of string names of the PublicKey.
     """
+
+    __tablename__ = 'public_keys'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('keys.uid'),
+                               primary_key=True)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'PublicKey'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
 
     def __init__(self, algorithm, length, value,
                  format_type=enums.KeyFormatType.X_509, masks=None,
@@ -372,8 +447,6 @@ class PublicKey(Key):
 
         if masks:
             self.cryptographic_usage_masks = masks
-        else:
-            self.cryptographic_usage_masks = list()
 
         # All remaining attributes are not considered part of the public API
         # and are subject to change.
@@ -405,8 +478,6 @@ class PublicKey(Key):
         elif self.key_format_type not in self._valid_formats:
             raise ValueError("key format type must be one of {0}".format(
                 self._valid_formats))
-        elif not isinstance(self.cryptographic_usage_masks, list):
-            raise TypeError("key usage masks must be a list")
 
         # TODO (peter-hamilton) Verify that the key bytes match the key format
 
@@ -461,6 +532,10 @@ class PublicKey(Key):
             return NotImplemented
 
 
+event.listen(PublicKey._names, 'append',
+             sql.attribute_append_factory("name_index"), retval=False)
+
+
 class PrivateKey(Key):
     """
     The PrivateKey class of the simplified KMIP object hierarchy.
@@ -479,6 +554,18 @@ class PrivateKey(Key):
         names: The list of string names of the PrivateKey. Optional, defaults
             to 'Private Key'.
     """
+
+    __tablename__ = 'private_keys'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('keys.uid'),
+                               primary_key=True)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'PrivateKey'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
 
     def __init__(self, algorithm, length, value, format_type, masks=None,
                  name='Private Key'):
@@ -512,8 +599,6 @@ class PrivateKey(Key):
 
         if masks:
             self.cryptographic_usage_masks = masks
-        else:
-            self.cryptographic_usage_masks = list()
 
         # All remaining attributes are not considered part of the public API
         # and are subject to change.
@@ -545,8 +630,6 @@ class PrivateKey(Key):
         elif self.key_format_type not in self._valid_formats:
             raise ValueError("key format type must be one of {0}".format(
                 self._valid_formats))
-        elif not isinstance(self.cryptographic_usage_masks, list):
-            raise TypeError("key usage masks must be a list")
 
         # TODO (peter-hamilton) Verify that the key bytes match the key format
 
@@ -601,6 +684,10 @@ class PrivateKey(Key):
             return NotImplemented
 
 
+event.listen(PrivateKey._names, 'append',
+             sql.attribute_append_factory("name_index"), retval=False)
+
+
 class Certificate(CryptographicObject):
     """
     The Certificate class of the simplified KMIP object hierarchy.
@@ -616,6 +703,20 @@ class Certificate(CryptographicObject):
             Certificate application.
         names: The list of string names of the Certificate.
     """
+
+    __tablename__ = 'certificates'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('crypto_objects.uid'),
+                               primary_key=True)
+    certificate_type = Column(
+        'certificate_type', sql.EnumType(enums.CertificateTypeEnum))
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'Certificate'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
 
     @abstractmethod
     def __init__(self, certificate_type, value, masks=None,
@@ -641,8 +742,6 @@ class Certificate(CryptographicObject):
 
         if masks:
             self.cryptographic_usage_masks = masks
-        else:
-            self.cryptographic_usage_masks = list()
 
         # All remaining attributes are not considered part of the public API
         # and are subject to change.
@@ -670,8 +769,6 @@ class Certificate(CryptographicObject):
                             enums.CertificateTypeEnum):
             raise TypeError("certificate type must be a CertificateTypeEnum "
                             "enumeration")
-        elif not isinstance(self.cryptographic_usage_masks, list):
-            raise TypeError("certificate usage masks must be a list")
 
         mask_count = len(self.cryptographic_usage_masks)
         for i in range(mask_count):
@@ -708,6 +805,18 @@ class X509Certificate(Certificate):
             Certificate application.
         names: The list of string names of the Certificate.
     """
+
+    __tablename__ = 'x509_certificates'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('certificates.uid'),
+                               primary_key=True)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'Certificate'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
 
     def __init__(self, value, masks=None, name='X.509 Certificate'):
         """
@@ -755,6 +864,10 @@ class X509Certificate(Certificate):
             return NotImplemented
 
 
+event.listen(X509Certificate._names, 'append',
+             sql.attribute_append_factory("name_index"), retval=False)
+
+
 class SecretData(CryptographicObject):
     """
     The SecretData class of the simplified KMIP object hierarchy.
@@ -768,6 +881,18 @@ class SecretData(CryptographicObject):
             describing how the CryptographicObject will be used.
         data_type: The type of the secret value.
     """
+
+    __tablename__ = 'secret_data_objects'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('crypto_objects.uid'),
+                               primary_key=True)
+    data_type = Column('data_type', sql.EnumType(enums.SecretDataType))
+    __mapper_args__ = {
+        'polymorphic_identity': 'SecretData'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
 
     def __init__(self, value, data_type, masks=None, name='Secret Data'):
         """
@@ -791,8 +916,6 @@ class SecretData(CryptographicObject):
 
         if masks:
             self.cryptographic_usage_masks = masks
-        else:
-            self.cryptographic_usage_masks = list()
 
         # All remaining attributes are not considered part of the public API
         # and are subject to change.
@@ -814,8 +937,6 @@ class SecretData(CryptographicObject):
         elif not isinstance(self.data_type, enums.SecretDataType):
             raise TypeError("secret data type must be a SecretDataType "
                             "enumeration")
-        elif not isinstance(self.cryptographic_usage_masks, list):
-            raise TypeError("secret data usage masks must be a list")
 
         mask_count = len(self.cryptographic_usage_masks)
         for i in range(mask_count):
@@ -861,6 +982,10 @@ class SecretData(CryptographicObject):
             return NotImplemented
 
 
+event.listen(SecretData._names, 'append',
+             sql.attribute_append_factory("name_index"), retval=False)
+
+
 class OpaqueObject(ManagedObject):
     """
     The OpaqueObject class of the simplified KMIP object hierarchy.
@@ -872,6 +997,18 @@ class OpaqueObject(ManagedObject):
     Attributes:
         opaque_type: The type of the opaque value.
     """
+
+    __tablename__ = 'opaque_objects'
+    unique_identifier = Column('uid', Integer,
+                               ForeignKey('managed_objects.uid'),
+                               primary_key=True)
+    opaque_type = Column('opaque_type', sql.EnumType(enums.OpaqueDataType))
+    __mapper_args__ = {
+        'polymorphic_identity': 'OpaqueData'
+    }
+    __table_args__ = {
+        'sqlite_autoincrement': True
+    }
 
     def __init__(self, value, opaque_type, name='Opaque Object'):
         """
@@ -889,7 +1026,7 @@ class OpaqueObject(ManagedObject):
 
         self.value = value
         self.opaque_type = opaque_type
-        self.names = [name]
+        self.names.append(name)
 
         # All remaining attributes are not considered part of the public API
         # and are subject to change.
@@ -950,3 +1087,7 @@ class OpaqueObject(ManagedObject):
             return not (self == other)
         else:
             return NotImplemented
+
+
+event.listen(OpaqueObject._names, 'append',
+             sql.attribute_append_factory("name_index"), retval=False)
