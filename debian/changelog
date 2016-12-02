@@ -1,8 +1,10 @@
-python-pykmip (0.5.0-4) UNRELEASED; urgency=medium
+python-pykmip (0.5.0-4) unstable; urgency=medium
 
+  * Team upload.
   * Bumped debhelper compat version to 10
+  * Rebuilt with python-sqlalchemy 1.1
 
- -- Ondřej Nový <onovy@debian.org>  Thu, 24 Nov 2016 00:10:28 +0100
+ -- Ondřej Nový <onovy@debian.org>  Fri, 02 Dec 2016 22:49:06 +0100
 
 python-pykmip (0.5.0-3) unstable; urgency=medium
 
